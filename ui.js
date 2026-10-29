@@ -129,21 +129,36 @@
 
   function renderCity(S, used) {
     var hint = $('cityHint');
-    hint.textContent = S.buildings.length + ' / 24 · 劳力 ' + used + ' / ' + S.pop;
+    var activeCount = S.buildings.filter(function (b) { return b.active; }).length;
+    hint.textContent = '已建 ' + S.buildings.length + ' / 24 · 启用 ' + activeCount + ' 座 · 劳力 ' + used + ' / ' + S.pop;
     hint.className = 'hint' + (used > S.pop ? ' danger' : '');
     var list = $('cityList');
     if (!S.buildings.length) {
       list.innerHTML = '<div class="empty">还没有建筑。先从右边建造基础供给。</div>';
       return;
     }
-    list.innerHTML = S.buildings.map(function (b) {
+    var groups = [];
+    S.buildings.forEach(function (b) {
       var d = defOfBuilding(b);
-      return '<div class="city-row' + (b.active ? '' : ' off') + '">' +
+      var g = null;
+      for (var i = 0; i < groups.length; i++) {
+        if (groups[i].def.id === d.id) { g = groups[i]; break; }
+      }
+      if (!g) { g = { def: d, total: 0, active: 0 }; groups.push(g); }
+      g.total += 1;
+      if (b.active) g.active += 1;
+    });
+    list.innerHTML = groups.map(function (g) {
+      var d = g.def;
+      return '<div class="city-row' + (g.active ? '' : ' off') + '">' +
         '<span class="cr-icon">' + d.icon + '</span>' +
-        '<div class="cr-main"><b>' + d.name + '</b><small>劳力 ' + d.labor + (b.active ? ' · 启用中' : ' · 已停用') + '</small></div>' +
-        '<button class="btn tiny ' + (b.active ? 'warn' : 'ghost') + '" data-toggle="' + b.uid + '" data-active="' + (b.active ? '1' : '0') + '" type="button">' +
-        (b.active ? '停用' : '启用') + '</button>' +
-        '</div>';
+        '<div class="cr-main"><b>' + d.name + '<span class="cr-total">×' + g.total + '</span></b>' +
+        '<small>劳力 ' + d.labor + '/座 · 启用 ' + g.active + ' / ' + g.total + '</small></div>' +
+        '<div class="cr-stepper">' +
+        '<button class="step" data-step="-1" data-def="' + d.id + '"' + (g.active <= 0 ? ' disabled' : '') + ' type="button">−</button>' +
+        '<span class="step-val">' + g.active + '</span>' +
+        '<button class="step" data-step="1" data-def="' + d.id + '"' + (g.active >= g.total ? ' disabled' : '') + ' type="button">+</button>' +
+        '</div></div>';
     }).join('');
   }
 
@@ -325,8 +340,11 @@
     render();
   }
 
-  function toggle(uid, active) {
-    var r = G.setBuildingActive(uid, !active);
+  function setCount(defId, delta) {
+    var S = G.getState();
+    var list = S.buildings.filter(function (b) { return b.defId === defId; });
+    var active = list.filter(function (b) { return b.active; }).length;
+    var r = G.setBuildingCount(defId, active + delta);
     if (!r.ok) toast(r.error);
     render();
   }
@@ -375,8 +393,8 @@
       if (btn) build(btn.getAttribute('data-build'));
     });
     $('cityList').addEventListener('click', function (e) {
-      var btn = e.target.closest('[data-toggle]');
-      if (btn) toggle(btn.getAttribute('data-toggle'), btn.getAttribute('data-active') === '1');
+      var btn = e.target.closest('[data-step]');
+      if (btn) setCount(btn.getAttribute('data-def'), Number(btn.getAttribute('data-step')));
     });
     $('boardList').addEventListener('click', function (e) {
       var btn = e.target.closest('[data-accept]');

@@ -25,10 +25,10 @@
     { key: 'material',  name: '原料', icon: '⛏',  group: 'basic',    base: 1, demand: 0.5 },
     { key: 'power',     name: '电力', icon: '⚡', group: 'basic',    base: 1, demand: 0.5 },
     { key: 'water',     name: '水',   icon: '💧', group: 'basic',    base: 1, demand: 0.5 },
-    { key: 'clothes',   name: '衣服', icon: '👕', group: 'advanced', base: 0, demand: 0.2 },
-    { key: 'furniture', name: '家具', icon: '🛋', group: 'advanced', base: 0, demand: 0.1 },
-    { key: 'medicine',  name: '药品', icon: '💊', group: 'advanced', base: 0, demand: 0.1 },
-    { key: 'education', name: '教育', icon: '📚', group: 'advanced', base: 0, demand: 0.08 }
+    { key: 'clothes',   name: '衣服', icon: '👕', group: 'advanced', base: 0, demand: 0.4 },
+    { key: 'furniture', name: '家具', icon: '🛋', group: 'advanced', base: 0, demand: 0.3 },
+    { key: 'medicine',  name: '药品', icon: '💊', group: 'advanced', base: 0, demand: 0.2 },
+    { key: 'education', name: '教育', icon: '📚', group: 'advanced', base: 0, demand: 0.15 }
   ];
   var RES_BY_KEY = {};
   RES.forEach(function (r) { RES_BY_KEY[r.key] = r; });
@@ -419,6 +419,36 @@
     return { ok: true };
   }
 
+  /* 按建筑类型设置启用数量：0..已建总数；增加时一次性检查劳力 */
+  function setBuildingCount(defId, count) {
+    if (state.over) return { ok: false, error: '游戏已结束' };
+    var def = BUILDING_BY_ID[defId];
+    if (!def) return { ok: false, error: '未知建筑' };
+    var list = state.buildings.filter(function (b) { return b.defId === defId; });
+    if (!list.length) return { ok: false, error: '还没有建造' + def.name };
+    var n = Math.floor(Number(count));
+    if (!isFinite(n) || n < 0 || n > list.length) {
+      return { ok: false, error: '数量需在 0–' + list.length + ' 之间' };
+    }
+    var active = list.filter(function (b) { return b.active; });
+    if (n === active.length) return { ok: true, active: n };
+    if (n > active.length) {
+      var delta = n - active.length;
+      var need = delta * def.labor;
+      var avail = laborAvailable();
+      if (need > avail) {
+        return { ok: false, error: '劳力不足：还需 ' + need + '，可用 ' + Math.max(0, avail) };
+      }
+      list.filter(function (b) { return !b.active; }).slice(0, delta).forEach(function (b) {
+        b.active = true;
+      });
+    } else {
+      active.slice(n).forEach(function (b) { b.active = false; });
+    }
+    log(def.name + '：启用 ' + n + ' / ' + list.length, 'info');
+    return { ok: true, active: n };
+  }
+
   /* ---------------- tasks ---------------- */
 
   function previewTask(uid) {
@@ -552,6 +582,7 @@
     build: build,
     buildStatus: buildStatus,
     setBuildingActive: setBuildingActive,
+    setBuildingCount: setBuildingCount,
     acceptTask: acceptTask,
     abandonTask: abandonTask,
     previewTask: previewTask,

@@ -105,6 +105,32 @@ ok(G.endTurn().ok, '停用后可以进入下回合');
 eq(s.turn, 9, 'T9');
 s.pop = savedPop; // 还原，避免影响后续
 
+/* 8.5 按建筑类型设置启用数量 */
+let s5 = G.newGame(5);
+G.chooseBlueprint(s5.pendingDraw.options[0]);
+ok(G.build('farm').ok, '数量测试：建第 1 座农场');
+G.endTurn();
+ok(G.build('farm').ok, '数量测试：建第 2 座农场');
+eq(s5.buildings.filter(b => b.defId === 'farm').length, 2, '2 座农场');
+eq(G.laborUsed(), 2, '2 座全启用');
+ok(G.setBuildingCount('farm', 1).ok, '设置农场启用 1 座');
+eq(s5.buildings.filter(b => b.defId === 'farm' && b.active).length, 1, '只剩 1 座启用');
+eq(G.laborUsed(), 1, '释放 1 劳力');
+ok(G.setBuildingCount('farm', 0).ok, '设置农场启用 0 座');
+eq(G.laborUsed(), 0, '全部停用');
+ok(G.setBuildingCount('farm', 2).ok, '重新启用 2 座');
+eq(G.laborUsed(), 2, '恢复 2 劳力');
+ok(G.setBuildingCount('farm', 3).ok === false, '不能超过已建数');
+ok(s5.hasBuilt === true, '调整数量不算建造行动');
+s5.pop = 1;
+ok(G.setBuildingCount('farm', 1).ok, '人口降到 1，先停 1 座');
+let countRes = G.setBuildingCount('farm', 2);
+ok(countRes.ok === false && countRes.error.indexOf('劳力') >= 0, '人口不足时不能启用第 2 座');
+ok(G.setBuildingCount('farm', 0).ok, '全部停用');
+eq(G.laborUsed(), 0, '劳力归零');
+s5.pop = 5;
+ok(G.setBuildingCount('water', 1).ok === false, '没有水厂时不能设置数量');
+
 /* 9. 限时任务到期 */
 let s2 = G.newGame(2);
 G.chooseBlueprint(s2.pendingDraw.options[0]);

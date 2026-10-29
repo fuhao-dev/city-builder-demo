@@ -130,6 +130,24 @@ body {
 .cr-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
 .cr-main b { font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cr-main small { font-size: 8px; color: var(--muted); }
+.cr-total { color: var(--muted); font-weight: 500; font-size: 8px; margin-left: 4px; }
+.cr-stepper { display: flex; align-items: center; gap: 3px; flex: 0 0 auto; }
+.step {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: #1b2942;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  font-family: inherit;
+}
+.step:hover:not(:disabled) { border-color: var(--gold); color: var(--gold); }
+.step:disabled { opacity: 0.3; cursor: not-allowed; }
+.step-val { min-width: 14px; text-align: center; font-size: 10px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .btn.tiny { padding: 3px 6px; font-size: 9px; border-radius: 7px; flex: 0 0 auto; }
 
 /* ---------------- tasks ---------------- */
