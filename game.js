@@ -1,5 +1,5 @@
 /*
- * 城建设计局 · 局内 v3.4.2 引擎
+ * 城建设计局 · 局内 v3.5.0 引擎
  * 纯逻辑、无 DOM，可在 Node 里直接 require 测试。
  *
  * 核心：30 回合 / 每回合 1 次建造 / 8 资源 / 人口常驻占用劳力 /
@@ -19,11 +19,12 @@
   var REP_START = 20;
   var REP_STEP = 10;
   var START_MONEY = 300;
+  var TASK_POP_BONUS = 4;
   var SAVE_VERSION = 2;
   var START_POP = 5;
   var NODES = [10, 25, 45, 65];
   var REFRESH = [6, 11, 16, 21, 26];
-  var START_TASKS = ['reclaim', 'waterworks', 'mining', 'relief'];
+  var START_TASKS = ['reclaim', 'waterworks', 'mining', 'relief', 'prospect'];
 
   var RES = [
     { key: 'food',      name: '食物', icon: '🌾', group: 'basic',    base: 3, demand: 1.0 },
@@ -43,21 +44,21 @@
     { id: 'mine',      name: '原料站', icon: '⛏',  cost: 60,  labor: 1, max: 6, out: { material: 5 } },
     { id: 'plant',     name: '电站',   icon: '⚡', cost: 70,  labor: 1, max: 6, out: { power: 5 } },
     { id: 'well',      name: '水厂',   icon: '💧', cost: 60,  labor: 1, max: 6, out: { water: 5 } },
-    { id: 'clothes',   name: '服装厂', icon: '👕', cost: 100, labor: 2, max: 3, out: { clothes: 3 }, extra: { power: 2, water: 2 } },
-    { id: 'furniture', name: '家具厂', icon: '🛋', cost: 120, labor: 2, max: 3, out: { furniture: 2 }, extra: { material: 3, power: 2 } },
-    { id: 'pharma',    name: '制药厂', icon: '💊', cost: 150, labor: 3, max: 2, out: { medicine: 2 }, extra: { water: 2, power: 2, material: 1 } },
-    { id: 'school',    name: '学校',   icon: '📚', cost: 120, labor: 2, max: 2, out: { education: 2 }, extra: { power: 1, water: 1 } }
+    { id: 'clothes',   name: '服装厂', icon: '👕', cost: 100, labor: 1, max: 3, out: { clothes: 3 }, extra: { power: 2, water: 2 } },
+    { id: 'furniture', name: '家具厂', icon: '🛋', cost: 120, labor: 1, max: 3, out: { furniture: 2 }, extra: { material: 3, power: 2 } },
+    { id: 'pharma',    name: '制药厂', icon: '💊', cost: 150, labor: 1, max: 2, out: { medicine: 2 }, extra: { water: 2, power: 2, material: 1 } },
+    { id: 'school',    name: '学校',   icon: '📚', cost: 120, labor: 1, max: 2, out: { education: 2 }, extra: { power: 1, water: 1 } }
   ];
 
   var BLUEPRINTS = [
     { id: 'greenhouse', name: '温室',     icon: '🌱', cost: 90,  labor: 1, max: 2, out: { food: 8 } },
-    { id: 'ranch',      name: '牧场',     icon: '🐄', cost: 120, labor: 2, max: 2, out: { food: 12 }, extra: { material: 1 } },
+    { id: 'ranch',      name: '牧场',     icon: '🐄', cost: 120, labor: 1, max: 2, out: { food: 12 }, extra: { material: 1 } },
     { id: 'wind',       name: '风电站',   icon: '🌬', cost: 110, labor: 1, max: 2, out: { power: 8 } },
     { id: 'deepwell',   name: '深水井',   icon: '🕳', cost: 100, labor: 1, max: 2, out: { water: 8 } },
-    { id: 'textile',    name: '纺织厂',   icon: '🧵', cost: 160, labor: 3, max: 2, out: { clothes: 5 }, extra: { power: 3, water: 3 } },
-    { id: 'workshop',   name: '家具工坊', icon: '🛠', cost: 160, labor: 3, max: 2, out: { furniture: 4 }, extra: { material: 4, power: 3 } },
-    { id: 'pharm2',     name: '药厂',     icon: '🧪', cost: 180, labor: 4, max: 1, out: { medicine: 3 }, extra: { water: 3, power: 3, material: 2 } },
-    { id: 'academy',    name: '学院',     icon: '🎓', cost: 150, labor: 3, max: 1, out: { education: 4 }, extra: { power: 2, water: 2 } },
+    { id: 'textile',    name: '纺织厂',   icon: '🧵', cost: 160, labor: 1, max: 2, out: { clothes: 5 }, extra: { power: 3, water: 3 } },
+    { id: 'workshop',   name: '家具工坊', icon: '🛠', cost: 160, labor: 1, max: 2, out: { furniture: 4 }, extra: { material: 4, power: 3 } },
+    { id: 'pharm2',     name: '药厂',     icon: '🧪', cost: 180, labor: 1, max: 1, out: { medicine: 3 }, extra: { water: 3, power: 3, material: 2 } },
+    { id: 'academy',    name: '学院',     icon: '🎓', cost: 150, labor: 1, max: 1, out: { education: 4 }, extra: { power: 2, water: 2 } },
     { id: 'market',     name: '市场',     icon: '🏪', cost: 90,  labor: 0, max: 1, out: {}, bonus: { sat: 5 } },
     { id: 'warehouse',  name: '仓库',     icon: '📦', cost: 80,  labor: 0, max: 1, out: {}, bonus: { occDiscount: 0.2 } }
   ];
@@ -66,25 +67,32 @@
   var BUILDING_BY_ID = {};
   ALL_BUILDINGS.forEach(function (b) { BUILDING_BY_ID[b.id] = b; });
 
+  function isAdvancedBuilding(def) {
+    if (!def || !def.out) return false;
+    return Object.keys(def.out).some(function (k) {
+      return RES_BY_KEY[k] && RES_BY_KEY[k].group === 'advanced';
+    });
+  }
+
   var TASK_DEFS = [
-    { id: 'reclaim',   name: '开垦',     type: 'normal', duration: 3, blocks: [1], occ: { food: 5 }, reward: { pop: 1, sup: { food: 3 }, rep: 3, money: 80 } },
-    { id: 'irrigate',  name: '灌溉',     type: 'normal', duration: 2, blocks: [1], occ: { food: 3 }, reward: { pop: 1, sup: { food: 2 }, rep: 3, money: 60 } },
-    { id: 'mining',    name: '采矿',     type: 'normal', duration: 4, blocks: [1], occ: { material: 4 }, reward: { pop: 1, sup: { material: 3 }, rep: 4, money: 86 } },
-    { id: 'prospect',  name: '勘探',     type: 'normal', duration: 2, blocks: [1], occ: { material: 3 }, reward: { pop: 1, sup: { material: 2 }, rep: 3, money: 58 } },
-    { id: 'wiring',    name: '架线',     type: 'normal', duration: 3, blocks: [1], occ: { power: 4 }, reward: { pop: 1, sup: { power: 3 }, rep: 3, money: 76 } },
-    { id: 'waterworks',name: '供水',     type: 'normal', duration: 3, blocks: [1], occ: { water: 4 }, reward: { pop: 1, sup: { water: 3 }, rep: 3, money: 76 } },
-    { id: 'tailor',    name: '制衣',     type: 'normal', duration: 4, blocks: [1, 2], occ: { clothes: 2 }, reward: { pop: 1, sup: { clothes: 2 }, rep: 4, money: 78 } },
-    { id: 'furniture_order', name: '家具订单', type: 'normal', duration: 4, blocks: [2], occ: { material: 3, power: 2 }, reward: { pop: 1, sup: { furniture: 2 }, rep: 4, money: 90 } },
-    { id: 'vaccine',   name: '疫苗',     type: 'normal', duration: 5, blocks: [2, 3], occ: { water: 3, power: 3 }, reward: { pop: 1, sup: { medicine: 2 }, rep: 5, money: 110 } },
-    { id: 'teaching',  name: '支教',     type: 'normal', duration: 4, blocks: [2], occ: { power: 2, water: 2 }, reward: { pop: 1, sup: { education: 2 }, rep: 4, money: 90 } },
-    { id: 'nightschool', name: '夜校',   type: 'normal', duration: 4, blocks: [2], occ: { food: 4, power: 4 }, reward: { pop: 2, rep: 5, money: 110 } },
-    { id: 'resettle',  name: '移民安置', type: 'normal', duration: 5, blocks: [3], occ: { food: 6, clothes: 2 }, reward: { pop: 3, rep: 6, money: 112 } },
-    { id: 'renewal',   name: '旧城改造', type: 'normal', duration: 5, blocks: [3], occ: { food: 5, material: 5, power: 5 }, reward: { pop: 2, sup: { food: 2, material: 2, power: 2 }, rep: 6, money: 120 } },
-    { id: 'relief',    name: '紧急救济', type: 'timed', window: 3, duration: 2, blocks: [1], occ: { food: 8 }, reward: { pop: 1, rep: 8, money: 82 } },
-    { id: 'festival',  name: '庆典',     type: 'timed', window: 2, duration: 2, blocks: [2], occ: { clothes: 3, food: 4 }, reward: { rep: 10, money: 78 } },
-    { id: 'expo',      name: '博览会',   type: 'timed', window: 3, duration: 3, blocks: [3], occ: { power: 6, clothes: 3 }, reward: { rep: 12, money: 100 } },
-    { id: 'pollution', name: '污染工厂', type: 'malignant', duration: 3, burdenA: { material: 5 }, occ: { material: 2 }, reward: { rep: 6, sup: { material: 4 }, money: 88 } },
-    { id: 'blackmarket', name: '黑市',   type: 'malignant', duration: 4, burdenA: { clothes: 4 }, occ: { clothes: 2 }, reward: { rep: 8, money: 120 } }
+    { id: 'reclaim',   name: '开垦',     type: 'normal', duration: 3, blocks: [1], occ: { food: 5 }, reward: { pop: 1, sup: { food: 3 }, rep: 3, money: 160 } },
+    { id: 'irrigate',  name: '灌溉',     type: 'normal', duration: 2, blocks: [1], occ: { food: 3 }, reward: { pop: 1, sup: { food: 2 }, rep: 3, money: 120 } },
+    { id: 'mining',    name: '采矿',     type: 'normal', duration: 4, blocks: [1], occ: { material: 4 }, reward: { pop: 1, sup: { material: 3 }, rep: 4, money: 172 } },
+    { id: 'prospect',  name: '勘探',     type: 'normal', duration: 2, blocks: [1], occ: { material: 3 }, reward: { pop: 1, sup: { material: 2 }, rep: 3, money: 116 } },
+    { id: 'wiring',    name: '架线',     type: 'normal', duration: 3, blocks: [1], occ: { power: 4 }, reward: { pop: 1, sup: { power: 3 }, rep: 3, money: 152 } },
+    { id: 'waterworks',name: '供水',     type: 'normal', duration: 3, blocks: [1], occ: { water: 4 }, reward: { pop: 1, sup: { water: 3 }, rep: 3, money: 152 } },
+    { id: 'tailor',    name: '制衣',     type: 'normal', duration: 4, blocks: [1, 2], occ: { clothes: 2 }, reward: { pop: 1, sup: { clothes: 2 }, rep: 4, money: 156 } },
+    { id: 'furniture_order', name: '家具订单', type: 'normal', duration: 4, blocks: [2], occ: { material: 3, power: 2 }, reward: { pop: 1, sup: { furniture: 2 }, rep: 4, money: 180 } },
+    { id: 'vaccine',   name: '疫苗',     type: 'normal', duration: 5, blocks: [2, 3], occ: { water: 3, power: 3 }, reward: { pop: 1, sup: { medicine: 2 }, rep: 5, money: 220 } },
+    { id: 'teaching',  name: '支教',     type: 'normal', duration: 4, blocks: [2], occ: { power: 2, water: 2 }, reward: { pop: 1, sup: { education: 2 }, rep: 4, money: 180 } },
+    { id: 'nightschool', name: '夜校',   type: 'normal', duration: 4, blocks: [2], occ: { food: 4, power: 4 }, reward: { pop: 2, rep: 5, money: 220 } },
+    { id: 'resettle',  name: '移民安置', type: 'normal', duration: 5, blocks: [3], occ: { food: 6, clothes: 2 }, reward: { pop: 3, rep: 6, money: 224 } },
+    { id: 'renewal',   name: '旧城改造', type: 'normal', duration: 5, blocks: [3], occ: { food: 5, material: 5, power: 5 }, reward: { pop: 2, sup: { food: 2, material: 2, power: 2 }, rep: 6, money: 240 } },
+    { id: 'relief',    name: '紧急救济', type: 'timed', window: 3, duration: 2, blocks: [1], occ: { food: 8 }, reward: { pop: 1, rep: 8, money: 164 } },
+    { id: 'festival',  name: '庆典',     type: 'timed', window: 2, duration: 2, blocks: [2], occ: { clothes: 3, food: 4 }, reward: { rep: 10, money: 156 } },
+    { id: 'expo',      name: '博览会',   type: 'timed', window: 3, duration: 3, blocks: [3], occ: { power: 6, clothes: 3 }, reward: { rep: 12, money: 200 } },
+    { id: 'pollution', name: '污染工厂', type: 'malignant', duration: 3, burdenA: { material: 5 }, occ: { material: 2 }, reward: { rep: 6, sup: { material: 4 }, money: 176 } },
+    { id: 'blackmarket', name: '黑市',   type: 'malignant', duration: 4, burdenA: { clothes: 4 }, occ: { clothes: 2 }, reward: { rep: 8, money: 240 } }
   ];
   var TASK_BY_ID = {};
   TASK_DEFS.forEach(function (t) { TASK_BY_ID[t.id] = t; });
@@ -197,7 +205,8 @@
     var def = TASK_BY_ID[t.defId];
     var r = def.reward || {};
     var parts = [];
-    if (r.pop) { state.pop += r.pop; parts.push('人口 +' + r.pop); }
+    var popGain = r.pop ? r.pop + TASK_POP_BONUS : 0;
+    if (popGain) { state.pop += popGain; parts.push('人口 +' + popGain); }
     if (r.money) { state.money += r.money; parts.push('金 +' + r.money); }
     if (r.rep) { state.rep += r.rep; parts.push('声望 +' + r.rep); }
     if (r.sup) {
@@ -213,13 +222,16 @@
 
   function refreshTasks() {
     var block = blockOfTurn(state.turn);
-    var normals = TASK_DEFS.filter(function (d) {
-      return d.type === 'normal' && d.blocks.indexOf(block) >= 0 &&
-        !isTaskPresent(d.id) && state.spawnedNormals[block].indexOf(d.id) < 0;
-    });
-    if (normals.length) {
+    var added = 0;
+    for (var i = 0; i < 2; i++) {
+      var normals = TASK_DEFS.filter(function (d) {
+        return d.type === 'normal' && d.blocks.indexOf(block) >= 0 &&
+          !isTaskPresent(d.id) && state.spawnedNormals[block].indexOf(d.id) < 0;
+      });
+      if (!normals.length) break;
       var pick = normals[Math.floor(nextRandom() * normals.length)];
       addTask(pick.id, state.turn);
+      added += 1;
     }
     var timedPool = TASK_DEFS.filter(function (d) {
       return d.type === 'timed' && d.blocks.indexOf(block) >= 0;
@@ -227,10 +239,12 @@
     var malignantPool = TASK_DEFS.filter(function (d) { return d.type === 'malignant'; });
     if (nextRandom() < 0.5 && timedPool.length) {
       addTask(timedPool[Math.floor(nextRandom() * timedPool.length)].id, state.turn);
+      added += 1;
     } else if (malignantPool.length) {
       addTask(malignantPool[Math.floor(nextRandom() * malignantPool.length)].id, state.turn);
+      added += 1;
     }
-    log('任务栏刷新：T' + state.turn + ' 追加 2 张', 'task');
+    log('任务栏刷新：T' + state.turn + ' 追加 ' + added + ' 张', 'task');
   }
 
   /* ---------------- compute ---------------- */
@@ -246,16 +260,20 @@
       supply[r.key] = round2(supply[r.key] + (state.taskSupply[r.key] || 0));
     });
 
+    /* 高级建筑先不产出：要等低阶投入品检查通过。 */
+    var advancedBuildings = [];
+    var advancedExtra = emptyRes();
     state.buildings.forEach(function (b) {
       if (!b.active) return;
       var def = BUILDING_BY_ID[b.defId];
       if (!def) return;
-      addTo(supply, def.out);
+      if (isAdvancedBuilding(def)) {
+        advancedBuildings.push(b);
+        addTo(advancedExtra, def.extra);
+      } else {
+        addTo(supply, def.out);
+      }
       addTo(extra, def.extra);
-    });
-
-    RES.forEach(function (r) {
-      demand[r.key] = round2(state.pop * r.demand + (extra[r.key] || 0));
     });
 
     state.active.forEach(function (t) {
@@ -279,6 +297,33 @@
     if (discount) {
       RES.forEach(function (r) { occ[r.key] = round2((occ[r.key] || 0) * (1 - discount)); });
     }
+
+    /* 基础资源不足时，所有高级建筑停产：产出和额外消耗都不生效。 */
+    var advancedStopped = false;
+    if (advancedBuildings.length) {
+      var basicShort = false;
+      RES.forEach(function (r) {
+        if (r.group !== 'basic') return;
+        var available = round2(supply[r.key] - (occ[r.key] || 0));
+        var need = round2(state.pop * r.demand + (extra[r.key] || 0));
+        if (available < need) basicShort = true;
+      });
+      if (basicShort) {
+        advancedStopped = true;
+        RES.forEach(function (r) {
+          extra[r.key] = Math.max(0, round2((extra[r.key] || 0) - (advancedExtra[r.key] || 0)));
+        });
+      }
+    }
+    if (!advancedStopped) {
+      advancedBuildings.forEach(function (b) {
+        addTo(supply, BUILDING_BY_ID[b.defId].out);
+      });
+    }
+
+    RES.forEach(function (r) {
+      demand[r.key] = round2(state.pop * r.demand + (extra[r.key] || 0));
+    });
 
     var per = RES.map(function (r) {
       var d = demand[r.key] || 0;
@@ -309,7 +354,7 @@
       sum: sum, penalty: penalty, over: over,
       baseSat: baseSat, turnPressure: turnPressure,
       sat: sat, repGain: repGain, popLoss: popLoss, market: market,
-      pop: state.pop
+      advancedStopped: advancedStopped, pop: state.pop
     };
   }
 
@@ -317,6 +362,9 @@
 
   function settle() {
     var c = compute();
+    if (c.advancedStopped && (!state.last || !state.last.advancedStopped)) {
+      log('低阶资源不足，高级建筑停产', 'warn');
+    }
     state.last = c;
     state.sat = c.sat;
     var extra = c.turnPressure ? '（回合压力 -' + c.turnPressure.toFixed(1) + '）' : '';
@@ -559,6 +607,34 @@
     return taskStepForOver(over);
   }
 
+  function taskAcceptStatus(uid) {
+    if (state.over) return { ok: false, error: '游戏已结束' };
+    if (state.pendingDraw) return { ok: false, error: '先选蓝图' };
+    var t = state.board.find(function (x) { return x.uid === uid; });
+    if (!t) return { ok: false, error: '任务不存在' };
+    var def = TASK_BY_ID[t.defId];
+    if (def.type === 'timed' && t.acceptBy < state.turn) {
+      return { ok: false, error: '已过接取期限' };
+    }
+    var c = compute();
+    var occMap = {};
+    c.per.forEach(function (p) { occMap[p.key] = p.occ; });
+    var ownBurden = (def.type === 'malignant' && !t.aReleased && def.burdenA) ? def.burdenA : {};
+    var bad = [];
+    Object.keys(def.occ).forEach(function (k) {
+      var r = RES_BY_KEY[k];
+      var supply = c.supply[k] || 0;
+      var occupied = round2((occMap[k] || 0) - (ownBurden[k] || 0));
+      if (!(supply > occupied)) {
+        bad.push((r ? r.name : k) + '：供给 ' + supply + '，已占用 ' + occupied);
+      }
+    });
+    if (bad.length) {
+      return { ok: false, error: '当前产出不足，必须仍有正余量（' + bad.join('；') + '）' };
+    }
+    return { ok: true };
+  }
+
   function acceptTask(uid) {
     if (state.over) return { ok: false, error: '游戏已结束' };
     if (state.pendingDraw) return { ok: false, error: '先选蓝图' };
@@ -566,9 +642,8 @@
     if (idx < 0) return { ok: false, error: '任务不存在' };
     var t = state.board[idx];
     var def = TASK_BY_ID[t.defId];
-    if (def.type === 'timed' && t.acceptBy < state.turn) {
-      return { ok: false, error: '已过接取期限' };
-    }
+    var gate = taskAcceptStatus(uid);
+    if (!gate.ok) return gate;
     state.board.splice(idx, 1);
     t.progress = 0;
     if (def.type === 'malignant') t.aReleased = true;
@@ -699,6 +774,7 @@
     exportState: exportState,
     importState: importState,
     forecast: forecast,
+    compute: compute,
     forecastTask: forecastTask,
     SAVE_VERSION: SAVE_VERSION,
     build: build,
@@ -706,6 +782,7 @@
     setBuildingActive: setBuildingActive,
     setBuildingCount: setBuildingCount,
     acceptTask: acceptTask,
+    taskAcceptStatus: taskAcceptStatus,
     abandonTask: abandonTask,
     previewTask: previewTask,
     endTurn: endTurn,
@@ -730,6 +807,7 @@
     taskProgressStep: taskProgressStep,
     START_MONEY: START_MONEY,
     START_POP: START_POP,
+    TASK_POP_BONUS: TASK_POP_BONUS,
     buildingDef: function (id) { return BUILDING_BY_ID[id]; },
     taskDef: function (id) { return TASK_BY_ID[id]; },
     resource: function (key) { return RES_BY_KEY[key]; }

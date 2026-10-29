@@ -1,4 +1,4 @@
-/* 局内 v3.4.2 引擎测试：起手 / 劳力 / 停用 / 任务 / 限时 / 恶性 / 蓝图 / 回合压力 / 30 回合 */
+/* 局内 v3.5.0 引擎测试：起手 / 建筑人口 / 停用 / 任务 / 限时 / 恶性 / 蓝图 / 回合压力 / 30 回合 */
 const G = require('./game.js');
 
 let passed = 0;
@@ -16,11 +16,18 @@ eq(s.pop, 5, 'P5');
 eq(s.money, 300, '300 金');
 near(s.sat, 0, '起手满意度 0');
 eq(s.rep, 0, '起手 0 声望');
-eq(s.board.length, 4, '起始 4 任务');
+eq(s.board.length, 5, '起始 5 任务');
 eq(s.last.per.length, 8, '8 资源');
 eq(s.pendingDraw.options.length, 3, '开局 3 选 1');
 ok(s.last.penalty === 5, 'P5 人口惩罚 5');
 ok(s.last.sum === 18, '八项起手 18');
+
+/* 1.1 建筑人口：全部 ≤1，蓝图中有 0 人口 */
+const allBuildings = G.BASE_BUILDINGS.concat(G.BLUEPRINTS);
+eq(allBuildings.every(d => d.labor <= 1), true, '所有建筑最多 1 人口');
+eq(G.BLUEPRINTS.filter(d => d.labor === 0).length >= 2, true, '至少两种蓝图 0 人口');
+eq(G.buildingDef('market').labor, 0, '市场 0 人口');
+eq(G.buildingDef('warehouse').labor, 0, '仓库 0 人口');
 
 /* 2. 选蓝图 */
 let picked = s.pendingDraw.options[0];
@@ -60,14 +67,14 @@ eq(s.rep, 1, 'T5 声望 1');
 eq(G.laborUsed(), 4, '四基础劳力 4');
 eq(s.money, 50, 'T5 金钱 50');
 let clothesTry = G.build('clothes');
-ok(clothesTry.ok === false && clothesTry.error.indexOf('劳力') >= 0, 'T5 服装厂被劳力挡住');
+ok(clothesTry.ok === false && clothesTry.error.indexOf('金钱') >= 0, 'T5 服装厂被金钱挡住（劳力已够）');
 
 /* 5. 停用释放劳力；任务补人后才建得起 */
 ok(G.setBuildingActive(s.buildings[0].uid, false).ok, '停用农场');
 eq(G.laborUsed(), 3, '释放后劳力 3');
 eq(G.laborAvailable(), 2, '可用 2');
 clothesTry = G.build('clothes');
-ok(clothesTry.ok === false, '还是建不起（钱/劳力）');
+ok(clothesTry.ok === false && clothesTry.error.indexOf('金钱') >= 0, '还是建不起（钱不够）');
 ok(G.setBuildingActive(s.buildings[0].uid, true).ok, '重新启用农场');
 
 /* 6. 开垦任务：占用、完成奖励、补人解锁服装厂 */
@@ -79,20 +86,21 @@ G.endTurn(); // T6
 G.endTurn(); // T7
 G.endTurn(); // T8，开垦完成
 eq(s.turn, 8, 'T8');
-eq(s.pop, 6, '开垦 +1 人 → P6');
-eq(s.money, 130, '开垦 +80 → 130');
-eq(s.rep, 6, 'T5 1 + T6 1 + T8 1 + 开垦 3 = 6（T7 被 0.21 压力压到 19.79）');
+eq(s.pop, 10, '开垦 +1 + 任务人口奖励 4 → P10');
+eq(s.money, 210, '开垦 +160 → 210');
+eq(s.rep, 5, 'T5/T6/T7 共 5 声望；T8 人口升到 10，满意度 14.08 不给声望，开垦 +3');
 eq(G.laborUsed(), 4, '四基础仍 4');
-ok(G.build('clothes').ok, 'P6 后服装厂落地');
-eq(s.money, 30, '服装厂后 30');
-eq(G.laborUsed(), 6, '4 基础 + 服装厂 2 = 6');
+ok(G.build('clothes').ok, 'P10 后服装厂落地（1 劳力）');
+eq(G.buildingDef('clothes').labor, 1, '服装厂只占 1 人口');
+eq(s.money, 110, '服装厂后 110');
+eq(G.laborUsed(), 5, '4 基础 + 服装厂 1 = 5');
 
 /* 7. 停用服装厂 → 劳力释放；重新启用 */
 let clothes = s.buildings.find(b => b.defId === 'clothes');
 ok(G.setBuildingActive(clothes.uid, false).ok, '停用服装厂');
 eq(G.laborUsed(), 4, '停用后 4');
 ok(G.setBuildingActive(clothes.uid, true).ok, '重新启用服装厂');
-eq(G.laborUsed(), 6, '恢复 6');
+eq(G.laborUsed(), 5, '恢复 5');
 
 /* 8. 人口低于已占用：不能进下回合 */
 let savedPop = s.pop;
@@ -204,7 +212,7 @@ let ft = G.forecastTask(reclaimT.uid);
 ok(!!ft && typeof ft.sat === 'number', '接取后预测可用');
 ok(ft.delta <= 0, '开垦占用食物，接取后预测下降');
 eq(G.getState().turn, 1, '接取预测不推进真实回合');
-eq(G.getState().board.length, 4, '接取预测不移除真实任务');
+eq(G.getState().board.length, 5, '接取预测不移除真实任务');
 
 eq(G.buildingDef('wind').labor, 1, '风电站 1 劳力');
 eq(G.buildingDef('wind').out.power, 8, '风电站 8 电');
@@ -263,7 +271,7 @@ eq(G.repGainFor(30), 2, '30 声望 +2');
 eq(G.repGainFor(60), 5, '60 声望 +5');
 eq(G.repGainFor(70), 5, '70 封顶 +5');
 
-/* 12.7 同资源超额：任务进度减半，叠接三个原料任务会明显拖慢整批任务 */
+/* 12.7 同资源超额：接取前必须有正余量；供给下降后仍会超额减速 */
 const overState = G.newGame(51);
 G.chooseBlueprint(overState.pendingDraw.options[0]);
 for (const id of ['farm', 'well', 'mine', 'plant']) {
@@ -276,18 +284,53 @@ overState.board = [
   { uid: 'ov-pollution', defId: 'pollution', spawnTurn: 6, acceptBy: 99 },
   { uid: 'ov-prospect', defId: 'prospect', spawnTurn: 6, acceptBy: 99 }
 ];
-for (const uid of ['ov-mining', 'ov-pollution', 'ov-prospect']) {
-  eq(G.acceptTask(uid).ok, true, '接取超额任务 ' + uid);
-}
+eq(G.acceptTask('ov-mining').ok, true, '接取第 1 个原料任务');
+eq(G.acceptTask('ov-pollution').ok, true, '接取第 2 个原料任务（此时原料仍有正余量）');
+const ovGate = G.acceptTask('ov-prospect');
+ok(ovGate.ok === false && ovGate.error.indexOf('当前产出') >= 0, '原料占用达到供给后，不能再接第 3 个');
+// 供给下降：停用原料站，制造已接任务的超额
+const mineB = overState.buildings.find(b => b.defId === 'mine');
+ok(G.setBuildingActive(mineB.uid, false).ok, '停用原料站，制造供给下降');
 const overF = G.forecast();
-eq(overF.last.over, 3, '原料占用 9 - 供给 6 = 超额 3');
-eq(overF.last.baseSat, 12, '超额不额外扣满意度，资源分已为 0');
-eq(overF.last.sat, 11.79, 'T7 基础满意度 12 - 回合压力 0.21');
-eq(overF.last.repGain, 0, '11.79 不给声望');
-eq(G.taskProgressStep('ov-mining'), 0.5, '超额 3 时每回合只推进 0.5');
+eq(overF.last.over, 5, '原料占用 6 - 供给 1 = 超额 5');
+eq(G.taskProgressStep('ov-mining'), 0.5, '超额 3+ 时每回合只推进 0.5');
 G.endTurn(); // T7
-eq(G.getState().active.every(t => t.progress === 0.5), true, '三个任务都只推进 0.5');
+eq(G.getState().active.every(t => t.progress === 0.5), true, '两个任务都只推进 0.5');
 eq(G.getState().active.every(t => t.progress < 1), true, '没有任务在 T7 完成');
+
+/* 12.8 高级资源：低阶不足停产；0 产出任务不能接 */
+const advBad = G.newGame(88);
+G.chooseBlueprint(advBad.pendingDraw.options[0]);
+ok(G.build('clothes').ok, '无基础时也能先建服装厂');
+const badFc = G.forecast();
+eq(badFc.last.advancedStopped, true, '低阶资源不足时高级建筑停产');
+eq(badFc.last.supply.clothes, 0, '衣服产出为 0');
+eq(badFc.last.extra.power, 0, '停产时不再消耗电力');
+advBad.board.push({ uid: 'zero-clothes', defId: 'festival', spawnTurn: 1, acceptBy: 9 });
+const zeroGate = G.acceptTask('zero-clothes');
+ok(zeroGate.ok === false && zeroGate.error.indexOf('当前产出') >= 0, '0 产出资源上的任务不能接取');
+
+const advGood = G.newGame(89);
+G.chooseBlueprint(advGood.pendingDraw.options[0]);
+for (const id of ['farm', 'well', 'mine', 'plant']) {
+  if (!G.build(id).ok) throw new Error('高级测试建基础失败: ' + id);
+  G.endTurn();
+}
+advGood.money = 300;
+ok(G.build('clothes').ok, '基础齐后建服装厂');
+const goodFc = G.forecast();
+eq(goodFc.last.advancedStopped, false, '低阶资源充足时高级建筑恢复生产');
+eq(goodFc.last.supply.clothes, 3, '衣服产出 3');
+
+/* 12.9 刷新节点一次追加 3 张（2 普通 + 1 特殊） */
+const rf = G.newGame(77);
+G.chooseBlueprint(rf.pendingDraw.options[0]);
+rf.board = [];
+rf.turn = 5;
+rf.hasBuilt = true;
+G.endTurn(); // T6
+eq(rf.turn, 6, '刷新测试到 T6');
+eq(rf.board.length, 3, 'T6 刷新追加 3 张');
 
 /* 13. 30 回合自动跑：只验证不崩、不越界 */
 function autoPlay(seed) {

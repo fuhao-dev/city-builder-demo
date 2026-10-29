@@ -1,4 +1,4 @@
-/* 平衡观察：简单贪心 AI 跑 3 个种子，看声望 / 人口 / 建筑 / 任务完成 */
+/* 平衡观察：简单贪心 AI 跑 5 个种子，接取所有可接任务，看声望 / 人口 / 建筑 / 任务完成 */
 const G = require('./game.js');
 
 const PRIORITY = ['farm', 'well', 'mine', 'plant', 'clothes', 'furniture', 'school', 'pharma'];
@@ -16,8 +16,8 @@ function autoPlay(seed) {
         if (G.buildStatus(id).ok) { G.build(id); break; }
       }
     }
-    const t = s.board.find(x => G.taskDef(x.defId).type !== 'malignant');
-    if (t) G.acceptTask(t.uid);
+    const tasks = s.board.filter(x => G.taskDef(x.defId).type !== 'malignant');
+    for (const t of tasks) G.acceptTask(t.uid);
     let dg = 0;
     while (G.laborUsed() > s.pop && dg++ < 30) {
       const b = s.buildings.find(x => x.active);

@@ -98,6 +98,8 @@ body {
 .res-card.basic { border-left: 3px solid var(--teal); }
 .res-card.full { border-color: rgba(87, 224, 192, 0.45); }
 .res-card.zero { opacity: 0.78; }
+.res-card.over { border-color: rgba(245, 107, 107, 0.55); }
+.res-card.full { border-color: rgba(87, 224, 192, 0.45); }
 .res-top { display: flex; align-items: center; gap: 5px; min-width: 0; }
 .res-icon { font-size: 14px; flex: 0 0 auto; }
 .res-name { font-size: 10px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -109,8 +111,13 @@ body {
 .res-card.zero .res-score { color: var(--red); }
 .bar { height: 5px; border-radius: 99px; background: #0e1727; overflow: hidden; margin-top: 5px; }
 .bar i { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--teal), #9af0d8); transition: width 0.3s ease; }
-.res-card.advanced .bar i { background: linear-gradient(90deg, var(--blue), #b9ccff); }
-.res-card.zero .bar i { background: var(--red); }
+.bar.res-bar { display: flex; gap: 0; }
+.bar.res-bar i { border-radius: 0; }
+.bar.res-bar i.occ { background: linear-gradient(90deg, var(--gold), #ffe0a3); }
+.bar.res-bar i.free { background: linear-gradient(90deg, var(--teal), #9af0d8); }
+.res-card.advanced .bar.res-bar i.free { background: linear-gradient(90deg, var(--blue), #b9ccff); }
+.res-card.over .bar.res-bar i.occ { background: var(--red); }
+.res-card.zero .bar.res-bar i.free { background: #26344a; }
 .res-foot { margin-top: 4px; font-size: 8px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .res-flow { display: flex; align-items: baseline; gap: 3px; margin-top: 4px; flex-wrap: wrap; font-variant-numeric: tabular-nums; }
 .rf-label { font-size: 8px; color: var(--muted); }
@@ -127,6 +134,8 @@ body {
 .sat-neg { color: var(--red); font-weight: 700; }
 .sat-rep { margin-left: 6px; font-size: 9px; color: var(--teal); font-weight: 700; }
 .res-over { color: var(--red); font-weight: 700; }
+.res-stopped { color: var(--red); font-weight: 700; }
+.task-card.blocked { opacity: 0.62; }
 .sat-math {
   margin-top: 10px;
   padding: 7px 9px;
