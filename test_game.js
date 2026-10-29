@@ -1,4 +1,4 @@
-/* 局内 v3.3 引擎测试：起手 / 劳力 / 停用 / 任务 / 限时 / 恶性 / 蓝图 / 30 回合 */
+/* 局内 v3.4.1 引擎测试：起手 / 劳力 / 停用 / 任务 / 限时 / 恶性 / 蓝图 / 回合压力 / 30 回合 */
 const G = require('./game.js');
 
 let passed = 0;
@@ -81,7 +81,7 @@ G.endTurn(); // T8，开垦完成
 eq(s.turn, 8, 'T8');
 eq(s.pop, 6, '开垦 +1 人 → P6');
 eq(s.money, 130, '开垦 +80 → 130');
-eq(s.rep, 7, 'T5 1 + T6/T7/T8 3 + 开垦 3 = 7');
+eq(s.rep, 6, 'T5 1 + T6 1 + T8 1 + 开垦 3 = 6（T7 被 0.21 压力压到 19.79）');
 eq(G.laborUsed(), 4, '四基础仍 4');
 ok(G.build('clothes').ok, 'P6 后服装厂落地');
 eq(s.money, 30, '服装厂后 30');
@@ -211,14 +211,14 @@ eq(G.buildingDef('wind').out.power, 8, '风电站 8 电');
 eq(G.buildingDef('deepwell').labor, 1, '深水井 1 劳力');
 eq(G.buildingDef('deepwell').out.water, 8, '深水井 8 水');
 
-/* 12.5 满意度负值随回合加深 */
+/* 12.5 回合压力：T1–6 为 0，T7 起线性增加到 T30 的 -5，正负基础满意度都扣 */
 const negCases = [
-  { turn: 4,  next: 5,  neg: 0, sat: -6,  popLoss: 1 },
-  { turn: 9,  next: 10, neg: 1, sat: -7,  popLoss: 1 },
-  { turn: 14, next: 15, neg: 2, sat: -8,  popLoss: 1 },
-  { turn: 19, next: 20, neg: 3, sat: -9,  popLoss: 1 },
-  { turn: 24, next: 25, neg: 4, sat: -10, popLoss: 2 },
-  { turn: 29, next: 30, neg: 5, sat: -11, popLoss: 2 }
+  { turn: 4,  next: 5,  pressure: 0,    sat: -6,    popLoss: 1 },
+  { turn: 9,  next: 10, pressure: 0.83, sat: -6.83, popLoss: 1 },
+  { turn: 14, next: 15, pressure: 1.88, sat: -7.88, popLoss: 1 },
+  { turn: 19, next: 20, pressure: 2.92, sat: -8.92, popLoss: 1 },
+  { turn: 24, next: 25, pressure: 3.96, sat: -9.96, popLoss: 1 },
+  { turn: 29, next: 30, pressure: 5,    sat: -11,   popLoss: 2 }
 ];
 for (const c of negCases) {
   const st = G.newGame(31);
@@ -227,20 +227,30 @@ for (const c of negCases) {
   G.acceptTask(relief.uid);
   st.turn = c.turn;
   const f = G.forecast();
-  eq(f.last.negPenalty, c.neg, 'T' + c.next + ' 负值惩罚 ' + c.neg);
+  eq(f.last.turnPressure, c.pressure, 'T' + c.next + ' 回合压力 ' + c.pressure);
   eq(f.last.sat, c.sat, 'T' + c.next + ' 满意度 ' + c.sat);
   eq(f.last.popLoss, c.popLoss, 'T' + c.next + ' 掉人口 ' + c.popLoss);
   eq(G.getState().turn, c.turn, 'T' + c.next + ' 预测不推进真实回合');
 }
 
-/* 正数满意度不触发负值惩罚 */
+/* 基础满意度为正 / 为 0 时，T30 仍会扣满 5 点回合压力 */
 const posState = G.newGame(32);
 G.chooseBlueprint(posState.pendingDraw.options[0]);
 G.build('farm');
 posState.turn = 29;
 const posF = G.forecast();
 ok(posF.last.baseSat > 0, 'T30 正数基础满意度');
-eq(posF.last.negPenalty, 0, '正数满意度不触发负值惩罚');
+eq(posF.last.turnPressure, 5, '正数基础满意度 T30 仍扣 5');
+eq(posF.last.sat, -1, '正数基础满意度 T30 被压到 -1');
+
+const zeroState = G.newGame(33);
+G.chooseBlueprint(zeroState.pendingDraw.options[0]);
+zeroState.turn = 29;
+const zeroF = G.forecast();
+eq(zeroF.last.baseSat, 0, 'T30 基础满意度为 0');
+eq(zeroF.last.turnPressure, 5, '基础满意度 0 时 T30 也扣 5');
+eq(zeroF.last.sat, -5, '基础满意度 0 时 T30 为 -5');
+eq(zeroF.last.popLoss, 1, '基础满意度 0 时 T30 掉 1 人口');
 
 /* 13. 30 回合自动跑：只验证不崩、不越界 */
 function autoPlay(seed) {
