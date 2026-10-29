@@ -1,0 +1,419 @@
+/* 城建设计局 · v3.3 界面 */
+(function () {
+  'use strict';
+
+  var G = window.DSHGame;
+  var $ = function (id) { return document.getElementById(id); };
+  var BEST_KEY = 'dsh_city_best_rep_v33';
+  var toastTimer = null;
+  var taskFilter = 'all';
+
+  function fmt(n) { return Math.round(n).toLocaleString('zh-CN'); }
+  function fmt1(n) { return (Math.round(n * 10) / 10).toFixed(1); }
+  function esc(s) {
+    return String(s).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+  function loadBest() {
+    try { return Number(localStorage.getItem(BEST_KEY) || 0) || 0; } catch (e) { return 0; }
+  }
+  function saveBest(rep) {
+    try { localStorage.setItem(BEST_KEY, String(rep)); } catch (e) {}
+  }
+  function toast(msg) {
+    var el = $('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { el.classList.remove('show'); }, 2000);
+  }
+  function defOfTask(t) { return G.taskDef(t.defId); }
+  function defOfBuilding(b) { return G.buildingDef(b.defId); }
+  function resName(key) { return G.resource(key) ? G.resource(key).name : key; }
+  function occText(occ) {
+    if (!occ) return '无';
+    var keys = Object.keys(occ);
+    if (!keys.length) return '无';
+    return keys.map(function (k) { return resName(k) + ' ' + occ[k]; }).join('、');
+  }
+  function outText(def) {
+    var parts = [];
+    if (def.out) Object.keys(def.out).forEach(function (k) { parts.push(resName(k) + ' +' + def.out[k]); });
+    if (def.bonus) {
+      if (def.bonus.sat) parts.push('满意度 +' + def.bonus.sat);
+      if (def.bonus.occDiscount) parts.push('任务占用 −' + Math.round(def.bonus.occDiscount * 100) + '%');
+    }
+    return parts.length ? parts.join(' · ') : '无直接产出';
+  }
+  function extraText(def) {
+    if (!def.extra) return '';
+    return Object.keys(def.extra).map(function (k) { return resName(k) + ' ' + def.extra[k]; }).join('、');
+  }
+  function rewardText(def) {
+    var r = def.reward || {};
+    var parts = [];
+    if (r.pop) parts.push('人口 +' + r.pop);
+    if (r.sup) Object.keys(r.sup).forEach(function (k) { parts.push(resName(k) + ' +' + r.sup[k]); });
+    if (r.rep) parts.push('声望 +' + r.rep);
+    if (r.money) parts.push('金 +' + r.money);
+    return parts.join(' · ');
+  }
+  function typeLabel(type) {
+    return type === 'timed' ? '限时' : type === 'malignant' ? '恶性' : '普通';
+  }
+  function typeOrder(type) {
+    return type === 'timed' ? 0 : type === 'malignant' ? 1 : 2;
+  }
+
+  function render() {
+    var S = G.getState();
+    if (!S) return;
+    var used = G.laborUsed();
+    var best = loadBest();
+    if (S.over && S.final && S.final.rep > best) {
+      best = S.final.rep;
+      saveBest(best);
+    }
+    renderHud(S, used, best);
+    renderResources(S);
+    renderCity(S, used);
+    renderBuild(S, used);
+    renderTasks(S);
+    renderLog(S);
+    renderAction(S, used);
+    renderModal(S, best);
+  }
+
+  function renderHud(S, used, best) {
+    $('statTurn').textContent = S.turn + ' / ' + G.MAX_TURNS;
+    $('statMoney').textContent = fmt(S.money);
+    $('statPop').textContent = S.pop;
+    var sat = $('statSat');
+    sat.textContent = fmt1(S.sat);
+    sat.className = 'v sat ' + (S.sat < 0 ? 'neg' : S.sat <= 10 ? 'mid' : 'pos');
+    $('statRep').textContent = S.rep;
+    var labor = $('statLabor');
+    labor.textContent = used + ' / ' + S.pop;
+    labor.className = 'v labor' + (used > S.pop ? ' neg' : '');
+    labor.title = '已占用 ' + used + ' · 可用 ' + (S.pop - used);
+    $('statCity').textContent = S.buildings.length + ' / ' + G.CAP;
+    $('statBest').textContent = best ? best : '—';
+    $('statBest').title = '本机最佳最终声望';
+  }
+
+  function renderResources(S) {
+    var c = S.last;
+    var grid = $('resGrid');
+    if (!c) { grid.innerHTML = ''; $('satMath').textContent = ''; return; }
+    grid.innerHTML = c.per.map(function (p) {
+      var left = Math.min(100, Math.max(0, (p.score / 10) * 100));
+      var cls = p.group === 'advanced' ? 'advanced' : 'basic';
+      var full = p.score >= 10 ? ' full' : p.score <= 0 ? ' zero' : '';
+      return '<article class="res-card ' + cls + full + '">' +
+        '<div class="res-top"><span class="res-icon">' + p.icon + '</span>' +
+        '<span class="res-name">' + p.name + '</span>' +
+        '<span class="res-tag">' + (p.group === 'advanced' ? '高级' : '基础') + '</span></div>' +
+        '<div class="res-nums"><b>' + p.sup + '</b><span class="res-sub">/ 需 ' + p.dem + '</span>' +
+        '<b class="res-score">' + fmt1(p.score) + '</b></div>' +
+        '<div class="bar"><i style="width:' + left + '%"></i></div>' +
+        '<div class="res-foot">' + (p.occ > 0 ? '占用 ' + p.occ + ' · ' : '') + '可用 ' + p.avail + '</div>' +
+        '</article>';
+    }).join('');
+    var math = '八项 ' + fmt1(c.sum) + ' − 人口惩罚 ' + fmt1(c.penalty) + ' − 赤字 ' + G.DEFICIT;
+    if (c.market) math += ' + 市场 ' + c.market;
+    math += ' = <b>' + fmt1(c.sat) + '</b>';
+    math += ' <span class="muted">（P' + S.pop + '）</span>';
+    $('satMath').innerHTML = math;
+  }
+
+  function renderCity(S, used) {
+    var hint = $('cityHint');
+    hint.textContent = S.buildings.length + ' / 24 · 劳力 ' + used + ' / ' + S.pop;
+    hint.className = 'hint' + (used > S.pop ? ' danger' : '');
+    var list = $('cityList');
+    if (!S.buildings.length) {
+      list.innerHTML = '<div class="empty">还没有建筑。先从右边建造基础供给。</div>';
+      return;
+    }
+    list.innerHTML = S.buildings.map(function (b) {
+      var d = defOfBuilding(b);
+      return '<div class="city-row' + (b.active ? '' : ' off') + '">' +
+        '<span class="cr-icon">' + d.icon + '</span>' +
+        '<div class="cr-main"><b>' + d.name + '</b><small>劳力 ' + d.labor + (b.active ? ' · 启用中' : ' · 已停用') + '</small></div>' +
+        '<button class="btn tiny ' + (b.active ? 'warn' : 'ghost') + '" data-toggle="' + b.uid + '" data-active="' + (b.active ? '1' : '0') + '" type="button">' +
+        (b.active ? '停用' : '启用') + '</button>' +
+        '</div>';
+    }).join('');
+  }
+
+  function buildCard(S, id) {
+    var d = G.buildingDef(id);
+    var st = G.buildStatus(id);
+    var count = S.buildings.filter(function (b) { return b.defId === id; }).length;
+    var extra = extraText(d);
+    var reason = st.ok ? '' : '<span class="bc-reason">' + st.reason + '</span>';
+    return '<button class="build-card' + (st.ok ? '' : ' is-dis') + '" data-build="' + id + '"' +
+      (st.ok ? '' : ' disabled') + ' title="' + (st.ok ? '建造 ' + d.name : st.reason) + '" type="button">' +
+      '<span class="bc-icon">' + d.icon + '</span>' +
+      '<div class="bc-main"><b>' + d.name + '</b>' +
+      '<small>' + outText(d) + ' · 劳力 ' + d.labor + '</small>' +
+      (extra ? '<small class="extra">耗 ' + extra + '</small>' : '') + '</div>' +
+      '<div class="bc-right"><span class="bc-cost">' + d.cost + '</span>' +
+      '<span class="bc-count">' + count + '/' + d.max + '</span>' + reason + '</div>' +
+      '</button>';
+  }
+
+  function renderBuild(S, used) {
+    var hint = $('buildHint');
+    hint.textContent = (S.hasBuilt ? '本回合已建造' : '每回合 1 次') + ' · 劳力 ' + used + ' / ' + S.pop + ' · 蓝图 ' + S.unlocked.length + '/10';
+    hint.className = 'hint' + (used > S.pop ? ' danger' : '');
+    var html = '<div class="build-group"><div class="group-head"><span>基础</span><span>8 种</span></div><div class="build-grid">';
+    html += G.BASE_BUILDINGS.map(function (d) { return buildCard(S, d.id); }).join('');
+    html += '</div></div>';
+    var unlocked = G.BLUEPRINTS.filter(function (d) { return S.unlocked.indexOf(d.id) >= 0; });
+    if (unlocked.length) {
+      html += '<div class="build-group"><div class="group-head"><span>蓝图</span><span>' + unlocked.length + ' 张</span></div><div class="build-grid">';
+      html += unlocked.map(function (d) { return buildCard(S, d.id); }).join('');
+      html += '</div></div>';
+    } else {
+      html += '<div class="empty small">蓝图在开局和声望 10/25/45/65 抽取。先选完开局蓝图。</div>';
+    }
+    $('buildList').innerHTML = html;
+  }
+
+  function renderTasks(S) {
+    $('taskHint').textContent = '任务栏 ' + S.board.length + ' · 进行中 ' + S.active.length;
+    var board = S.board.slice().filter(function (t) {
+      return taskFilter === 'all' || defOfTask(t).type === taskFilter;
+    }).sort(function (a, b) {
+      var da = defOfTask(a), db = defOfTask(b);
+      return typeOrder(da.type) - typeOrder(db.type) || a.spawnTurn - b.spawnTurn;
+    });
+    var list = $('boardList');
+    if (!board.length) {
+      list.innerHTML = taskFilter === 'all'
+        ? '<div class="empty">任务栏空了。等刷新节点，或先补建筑。</div>'
+        : '<div class="empty">当前筛选没有任务。</div>';
+    } else {
+      list.innerHTML = board.map(function (t) {
+        var d = defOfTask(t);
+        var preview = G.previewTask(t.uid);
+        var previewCls = preview === null ? '' : preview < 0 ? ' neg' : preview > 10 ? ' pos' : ' mid';
+        var extra = '';
+        if (d.type === 'timed') {
+          var left = t.acceptBy - S.turn;
+          extra = '<div class="tc-deadline' + (left <= 1 ? ' urgent' : '') + '">限时：T' + t.acceptBy + ' 前接' +
+            (left <= 1 ? '（最后回合）' : '（剩 ' + left + ' 回合）') + '</div>';
+        } else if (d.type === 'malignant') {
+          extra = '<div class="tc-deadline">出生负担 A：' + occText(d.burdenA) +
+            (t.aReleased ? '（已释放）' : '（接取前持续占用）') + '</div>';
+        }
+        var occLabel = d.type === 'malignant' ? '接取占用 B' : '占用';
+        return '<article class="task-card ' + d.type + '">' +
+          '<div class="tc-top"><b>' + d.name + '</b><span class="badge ' + d.type + '">' + typeLabel(d.type) + '</span>' +
+          '<span class="tc-dur">' + d.duration + ' 回合</span></div>' +
+          '<div class="tc-occ">' + occLabel + '：' + occText(d.occ) + '</div>' +
+          '<div class="tc-reward">' + rewardText(d) + '</div>' +
+          extra +
+          '<div class="tc-foot"><span class="tc-sat' + previewCls + '">接后 sat ' + (preview === null ? '—' : fmt1(preview)) + '</span>' +
+          '<button class="btn small primary" data-accept="' + t.uid + '"' + (S.pendingDraw || S.over ? ' disabled' : '') + ' type="button">接取</button></div>' +
+          '</article>';
+      }).join('');
+    }
+
+    $('activeCount').textContent = S.active.length;
+    var act = $('activeList');
+    if (!S.active.length) {
+      act.innerHTML = '<div class="empty small">暂无进行中的任务。任务栏不限张数，按占用自然限制。</div>';
+    } else {
+      act.innerHTML = S.active.map(function (t) {
+        var d = defOfTask(t);
+        var pct = Math.min(100, Math.round((t.progress / d.duration) * 100));
+        return '<article class="task-card active ' + d.type + '">' +
+          '<div class="tc-top"><b>' + d.name + '</b><span class="badge">进行中</span>' +
+          '<span class="tc-dur">' + t.progress + ' / ' + d.duration + '</span></div>' +
+          '<div class="bar"><i style="width:' + pct + '%"></i></div>' +
+          '<div class="tc-occ">占用：' + occText(d.occ) + '</div>' +
+          '<div class="tc-foot"><span class="tc-sat">' + (t.progress + 1 >= d.duration ? '下回合完成' : '还需 ' + (d.duration - t.progress) + ' 回合') + '</span>' +
+          '<button class="btn small ghost" data-abandon="' + t.uid + '" type="button">放弃</button></div>' +
+          '</article>';
+      }).join('');
+    }
+  }
+
+  function renderLog(S) {
+    $('logList').innerHTML = S.log.slice(0, 40).map(function (l) {
+      return '<div class="log-line ' + l.kind + '"><span class="log-turn">T' + l.turn + '</span><span>' + esc(l.text) + '</span></div>';
+    }).join('');
+  }
+
+  function renderAction(S, used) {
+    var over = S.over;
+    var laborOver = used > S.pop;
+    var canEnd = !over && !S.pendingDraw && !laborOver;
+    var btn = $('btnNext');
+    btn.disabled = !canEnd;
+    btn.textContent = over ? '已结束' : '进入下回合 →';
+    var hint = $('actionHint');
+    if (S.pendingDraw) hint.textContent = '先选择蓝图';
+    else if (over) hint.textContent = '30 回合结束 · 最终声望 ' + S.rep;
+    else if (laborOver) hint.textContent = '劳力不足：已占用 ' + used + ' / 人口 ' + S.pop + '，停用建筑后才能进入下回合';
+    else if (!S.hasBuilt) hint.textContent = '本回合还可建造 1 次 · 种子 ' + S.seed;
+    else hint.textContent = '本回合已建造；可接/放弃任务 · 种子 ' + S.seed;
+    hint.className = 'action-hint' + (laborOver ? ' danger' : '');
+  }
+
+  function renderModal(S, best) {
+    var modal = $('modal');
+    var card = $('modalCard');
+    if (S.pendingDraw) {
+      var d = S.pendingDraw;
+      var title = d.opening ? '开局蓝图' : '声望 ' + d.node + ' · 蓝图';
+      var html = '<div class="modal-head"><h2>' + title + '</h2>' +
+        '<p>从 3 张中选 1 张解锁。蓝图只是建筑类型，建造时仍要花金钱和劳力。选完才能继续。</p></div>' +
+        '<div class="pick-grid">';
+      html += d.options.map(function (id) {
+        var b = G.buildingDef(id);
+        var extra = extraText(b);
+        return '<button class="pick-card" data-pick="' + id + '" type="button">' +
+          '<span class="pick-icon">' + b.icon + '</span>' +
+          '<h3>' + b.name + '</h3>' +
+          '<p>' + outText(b) + (extra ? '<br><span class="muted">耗 ' + extra + '</span>' : '') + '</p>' +
+          '<span class="pick-req">劳力 ' + b.labor + ' · 上限 ' + b.max + '</span>' +
+          '<span class="pick-cost">' + b.cost + ' 金</span>' +
+          '<span class="pick-btn">选择</span>' +
+          '</button>';
+      }).join('');
+      html += '</div>';
+      card.innerHTML = html;
+      modal.classList.remove('hidden');
+      return;
+    }
+    if (S.over && S.final) {
+      var f = S.final;
+      var isBest = f.rep >= best;
+      card.innerHTML = '<div class="end">' +
+        '<div class="end-kicker">30 回合结束</div>' +
+        '<div class="end-rep">' + f.rep + '<small>声望</small></div>' +
+        '<div class="end-sub">最终得分只看累计声望' + (isBest ? ' · 本机最佳' : '') + '</div>' +
+        '<div class="end-grid">' +
+        '<div class="end-stat"><b>' + f.pop + '</b><span>人口</span></div>' +
+        '<div class="end-stat"><b>' + f.buildings + '</b><span>建筑</span></div>' +
+        '<div class="end-stat"><b>' + f.tasksDone + '</b><span>完成任务</span></div>' +
+        '<div class="end-stat"><b>' + fmt(f.money) + '</b><span>剩余金钱</span></div>' +
+        '</div>' +
+        '<div class="end-best">本机最佳最终声望：' + best + ' · 种子 ' + S.seed + '</div>' +
+        '<button class="btn primary big" data-restart="1" type="button">再来一局</button>' +
+        '</div>';
+      modal.classList.remove('hidden');
+      return;
+    }
+    modal.classList.add('hidden');
+    card.innerHTML = '';
+  }
+
+  function nextTurn() {
+    var r = G.endTurn();
+    if (!r.ok) toast(r.error);
+    render();
+  }
+
+  function build(id) {
+    var r = G.build(id);
+    if (!r.ok) toast(r.error);
+    render();
+  }
+
+  function toggle(uid, active) {
+    var r = G.setBuildingActive(uid, !active);
+    if (!r.ok) toast(r.error);
+    render();
+  }
+
+  function accept(uid) {
+    var r = G.acceptTask(uid);
+    if (!r.ok) toast(r.error);
+    render();
+  }
+
+  function abandon(uid) {
+    var r = G.abandonTask(uid);
+    if (!r.ok) toast(r.error);
+    render();
+  }
+
+  function pick(id) {
+    var r = G.chooseBlueprint(id);
+    if (!r.ok) toast(r.error);
+    render();
+  }
+
+  function newGame(seed) {
+    taskFilter = 'all';
+    try {
+      var btns = document.querySelectorAll('#taskFilter .filter-btn');
+      for (var i = 0; i < btns.length; i++) {
+        btns[i].classList.toggle('on', btns[i].getAttribute('data-filter') === 'all');
+      }
+    } catch (e) {}
+    G.newGame(seed);
+    render();
+  }
+
+  function restart(force) {
+    if (!force && !confirm('重新开始？当前进度会丢失。')) return;
+    newGame();
+  }
+
+  function init() {
+    $('btnNext').addEventListener('click', nextTurn);
+    $('btnRestart').addEventListener('click', function () { restart(false); });
+
+    $('buildList').addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-build]');
+      if (btn) build(btn.getAttribute('data-build'));
+    });
+    $('cityList').addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-toggle]');
+      if (btn) toggle(btn.getAttribute('data-toggle'), btn.getAttribute('data-active') === '1');
+    });
+    $('boardList').addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-accept]');
+      if (btn) accept(btn.getAttribute('data-accept'));
+    });
+    $('activeList').addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-abandon]');
+      if (btn) abandon(btn.getAttribute('data-abandon'));
+    });
+    $('taskFilter').addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-filter]');
+      if (!btn) return;
+      taskFilter = btn.getAttribute('data-filter');
+      var btns = e.currentTarget.querySelectorAll('.filter-btn');
+      for (var i = 0; i < btns.length; i++) {
+        btns[i].classList.toggle('on', btns[i].getAttribute('data-filter') === taskFilter);
+      }
+      render();
+    });
+    $('modalCard').addEventListener('click', function (e) {
+      var pickBtn = e.target.closest('[data-pick]');
+      if (pickBtn) { pick(pickBtn.getAttribute('data-pick')); return; }
+      var restartBtn = e.target.closest('[data-restart]');
+      if (restartBtn) { restart(true); }
+    });
+
+    var seed = null;
+    try {
+      var q = new URLSearchParams(window.location.search).get('seed');
+      if (q !== null && q !== '' && isFinite(Number(q))) seed = Number(q);
+    } catch (e) {}
+    newGame(seed);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
