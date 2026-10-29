@@ -15,6 +15,7 @@
   var CAP = 24;
   var DEFICIT = 13;
   var PRESSURE_MAX = 5;
+  var PRESSURE_START = 6;
   var START_MONEY = 300;
   var SAVE_VERSION = 2;
   var START_POP = 5;
@@ -281,8 +282,8 @@
     var penalty = popPenalty(state.pop);
     var baseSat = round2(sum - penalty - DEFICIT + market);
     /* 后期压力：T1–6 为 0，T7 起线性增加到 T30 的 5；不区分基础满意度正负。 */
-    var turnPressure = state.turn <= 6 ? 0 :
-      round2(Math.min(PRESSURE_MAX, (state.turn - 6) * PRESSURE_MAX / (MAX_TURNS - 6)));
+    var turnPressure = state.turn <= PRESSURE_START ? 0 :
+      round2(Math.min(PRESSURE_MAX, (state.turn - PRESSURE_START) * PRESSURE_MAX / (MAX_TURNS - PRESSURE_START)));
     var sat = round2(baseSat - turnPressure);
     var repGain = sat > 10 ? Math.min(5, Math.floor((sat - 10) / 10)) : 0;
     var popLoss = sat < 0 ? Math.min(3, 1 + Math.floor(-sat / 10)) : 0;
@@ -687,6 +688,7 @@
     REFRESH: REFRESH,
     DEFICIT: DEFICIT,
     PRESSURE_MAX: PRESSURE_MAX,
+    PRESSURE_START: PRESSURE_START,
     START_MONEY: START_MONEY,
     START_POP: START_POP,
     buildingDef: function (id) { return BUILDING_BY_ID[id]; },
