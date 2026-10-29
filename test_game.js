@@ -1,4 +1,4 @@
-/* 局内 v3.5.0 引擎测试：起手 / 建筑人口 / 停用 / 任务 / 限时 / 恶性 / 蓝图 / 回合压力 / 30 回合 */
+/* 局内 v3.5.1 引擎测试：起手 / 建筑人口 / 停用 / 任务 / 限时 / 恶性 / 蓝图 / 回合压力 / 30 回合 */
 const G = require('./game.js');
 
 let passed = 0;
@@ -86,11 +86,11 @@ G.endTurn(); // T6
 G.endTurn(); // T7
 G.endTurn(); // T8，开垦完成
 eq(s.turn, 8, 'T8');
-eq(s.pop, 10, '开垦 +1 + 任务人口奖励 4 → P10');
+eq(s.pop, 8, '开垦 +1 + 任务人口奖励 2 → P8');
 eq(s.money, 210, '开垦 +160 → 210');
-eq(s.rep, 5, 'T5/T6/T7 共 5 声望；T8 人口升到 10，满意度 14.08 不给声望，开垦 +3');
+eq(s.rep, 5, 'T5/T6/T7 共 5 声望；T8 满意度 17.08 不给声望，开垦 +3');
 eq(G.laborUsed(), 4, '四基础仍 4');
-ok(G.build('clothes').ok, 'P10 后服装厂落地（1 劳力）');
+ok(G.build('clothes').ok, 'P8 后服装厂落地（1 劳力）');
 eq(G.buildingDef('clothes').labor, 1, '服装厂只占 1 人口');
 eq(s.money, 110, '服装厂后 110');
 eq(G.laborUsed(), 5, '4 基础 + 服装厂 1 = 5');
@@ -321,6 +321,22 @@ ok(G.build('clothes').ok, '基础齐后建服装厂');
 const goodFc = G.forecast();
 eq(goodFc.last.advancedStopped, false, '低阶资源充足时高级建筑恢复生产');
 eq(goodFc.last.supply.clothes, 3, '衣服产出 3');
+
+/* 12.8.1 低阶短缺按项 -25%：电力/水各缺 1 项 → 高级产出 50% */
+advGood.pop = 9;
+const partialFc = G.forecast();
+eq(partialFc.last.advancedShort, 2, '电力/水两项短缺');
+eq(partialFc.last.advancedStopped, false, '部分短缺不再全停');
+eq(partialFc.last.advancedOutputPct, 50, '高级产出 -50%');
+eq(partialFc.last.supply.clothes, 1.5, '衣服产出 3 × 50% = 1.5');
+eq(partialFc.last.extra.power, 2, '部分减产仍按原高级投入计算');
+
+/* 12.8.2 只缺 1 项 → 高级产出 75% */
+advGood.taskSupply.water = 1;
+const oneShortFc = G.forecast();
+eq(oneShortFc.last.advancedShort, 1, '只有电力一项短缺');
+eq(oneShortFc.last.advancedOutputPct, 75, '高级产出 -25%');
+eq(oneShortFc.last.supply.clothes, 2.25, '衣服产出 3 × 75% = 2.25');
 
 /* 12.9 刷新节点一次追加 3 张（2 普通 + 1 特殊） */
 const rf = G.newGame(77);

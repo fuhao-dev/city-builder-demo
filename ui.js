@@ -1,4 +1,4 @@
-/* 城建设计局 · v3.5.0 界面 */
+/* 城建设计局 · v3.5.1 界面 */
 (function () {
   'use strict';
 
@@ -157,15 +157,21 @@
       var np = nextOf(p.key);
       var score = np ? np.score : p.score;
       var barP = p;
-      var occPct = barP.sup > 0 ? Math.min(100, Math.max(0, (barP.occ / barP.sup) * 100)) : (barP.occ > 0 ? 100 : 0);
-      var freePct = barP.sup > 0 ? Math.max(0, 100 - occPct) : 0;
+      var barTotal = Math.round((barP.dem + barP.occ) * 100) / 100;
+      var coveredDem = Math.max(0, Math.min(barP.dem, barP.sup - barP.occ));
+      var shortDem = Math.max(0, barP.dem - coveredDem);
+      var occPct = barTotal > 0 ? Math.min(100, Math.max(0, (barP.occ / barTotal) * 100)) : 0;
+      var demPct = barTotal > 0 ? Math.max(0, (coveredDem / barTotal) * 100) : 0;
+      var shortPct = barTotal > 0 ? Math.max(0, (shortDem / barTotal) * 100) : 0;
       var cls = p.group === 'advanced' ? 'advanced' : 'basic';
       var full = barP.sup > 0 && barP.occ === 0 ? ' full' : barP.sup <= 0 ? ' zero' : '';
       var barOver = barP.over > 0 ? ' over' : '';
+      var short = shortDem > 0 ? ' short' : '';
       var deltaCls = np ? (np.score > p.score ? ' up' : np.score < p.score ? ' down' : '') : '';
       var supCls = np ? (np.sup > p.sup ? ' up' : np.sup < p.sup ? ' down' : '') : '';
-      var stopped = p.group === 'advanced' && c.advancedStopped;
-      return '<article class="res-card ' + cls + full + barOver + '" title="供给 ' + barP.sup + ' / 占用 ' + barP.occ + '">' +
+      var advPct = c.advancedOutputPct == null ? 100 : c.advancedOutputPct;
+      var advWarn = p.group === 'advanced' && c.advancedShort > 0;
+      return '<article class="res-card ' + cls + full + barOver + short + '" title="供给 ' + barP.sup + ' / 占用 ' + barP.occ + ' / 需求 ' + barP.dem + (shortDem > 0 ? ' / 缺口 ' + Math.round(shortDem * 100) / 100 : '') + '">' +
         '<div class="res-top"><span class="res-icon">' + p.icon + '</span>' +
         '<span class="res-name">' + p.name + '</span>' +
         '<span class="res-tag">' + (p.group === 'advanced' ? '高级' : '基础') + '</span></div>' +
@@ -177,12 +183,13 @@
         '</div>' +
         '<div class="res-scoreline">满足 <b>' + fmt1(p.score) + '</b>' +
         '<span class="res-arrow">→</span><b class="res-next' + deltaCls + '">' + (np ? fmt1(np.score) : '—') + '</b></div>' +
-        '<div class="bar res-bar' + barOver + '">' +
+        '<div class="bar res-bar' + barOver + short + '">' +
         '<i class="occ" style="width:' + occPct + '%"></i>' +
-        '<i class="free" style="width:' + freePct + '%"></i></div>' +
-        '<div class="res-foot">供给 ' + barP.sup + ' · 占用 ' + barP.occ + ' · 可用 ' + barP.avail +
+        '<i class="dem" style="width:' + demPct + '%"></i>' +
+        '<i class="shortfall" style="width:' + shortPct + '%"></i></div>' +
+        '<div class="res-foot">供给 ' + barP.sup + ' · 占用 ' + barP.occ + ' · 需求 ' + barP.dem +
         (barP.over ? ' · <span class="res-over">超额 ' + barP.over + '</span>' : '') +
-        (stopped ? ' · <span class="res-stopped">低阶不足·停产</span>' : '') + '</div>' +
+        (advWarn ? ' · <span class="res-stopped">低阶不足·' + (advPct > 0 ? '产出 ' + advPct + '%' : '停产') + '</span>' : '') + '</div>' +
         '</article>';
     }).join('');
     var math;
@@ -398,9 +405,10 @@
     return '<div class="intro">' +
       '<div class="intro-goal">目标：30 回合累计声望，<b>最终得分只看累计声望</b>。</div>' +
       '<ul>' +
-      '<li><b>满意度</b> = 八项资源满足分 − 人口惩罚 − 赤字 ' + G.DEFICIT + ' − 回合压力。&lt;0 掉人口；0–19.9 稳定、不加声望；20–29.9 声望 +1，之后每 +10 再 +1（最高 +5）。资源条显示「占用 / 供给」，满足分改为文字。</li>' +
+      '<li><b>资源条</b>：总长度 = 需求 + 占用；金色段为任务占用，青色/蓝色段为已覆盖需求，红色斜纹段为供给缺口；满足分改为文字。</li>' +
+      '<li><b>满意度</b> = 八项资源满足分 − 人口惩罚 − 赤字 ' + G.DEFICIT + ' − 回合压力。&lt;0 掉人口；0–19.9 稳定、不加声望；20–29.9 声望 +1，之后每 +10 再 +1（最高 +5）。</li>' +
       '<li><b>超额减速</b>：同一资源占用超过供给时，相关任务进度变慢：超额 1 为 0.8 速、2 为 0.6 速、3 及以上为 0.5 速。集中叠接同资源会拖慢整批任务。</li>' +
-      '<li><b>高级停产</b>：衣服 / 家具 / 药品 / 教育建筑需要基础资源；食物、原料、电力、水任一不足时，所有高级建筑停产，且不再消耗额外基础资源。</li>' +
+      '<li><b>高级减产</b>：低阶资源每缺 1 项，高级产出 -25%；缺 2 项 -50%，缺 3 项 -75%，四项全缺停产。部分减产仍按原高级投入计算，停产时才暂停额外投入。</li>' +
       '<li><b>回合压力</b>：T1–6 为 0，T7 起线性增加到 T30 的 −5；不管基础满意度正负都扣，后期越来越难拿声望。</li>' +
       '<li><b>每回合</b> 1 次建造；所有建筑最多占 1 人口，市场/仓库等部分蓝图 0 人口；人口既提供劳力也产生需求。</li>' +
       '<li><b>任务</b> 开局 5 张，T' + G.REFRESH.join('/T') + ' 各刷新 3 张；接取前每种占用资源都必须有正余量，0 产出不能接。普通任务也给声望，限时任务过期消失；任务金币与人口奖励已提高。</li>' +
@@ -415,9 +423,9 @@
       '<p><b>满意度</b>：八项资源各 0–10 分，减去人口惩罚、赤字 ' + G.DEFICIT + ' 和回合压力。&lt;0 掉人口；0–19.9 稳定、不加声望；20–29.9 每回合 +1，30–39.9 +2，40–49.9 +3，50–59.9 +4，≥60 +5（最高 5）。</p>' +
       '<p><b>超额减速</b>：同一资源被任务占用超过供给时，相关任务进度变慢：超额 1 → 0.8 速，2 → 0.6 速，3+ → 0.5 速。任务仍会推进，但叠接同资源会拖慢整批任务，奖励不再免费。</p>' +
       '<p><b>回合压力</b>：T1–6 为 0，T7 起线性增加，T30 为 −5；无论基础满意度正负都扣。后期想拿声望，需要比前期更高的基础供给。</p>' +
-      '<p><b>资源条</b>：彩条不再表示满意度，而是「占用 / 供给」：金色为任务占用，青色/蓝色为剩余供给；文字显示满足分。悬停可看供给与占用数值。</p>' +
+      '<p><b>资源条</b>：彩条不再表示满意度，总长度 = 需求 + 占用；金色为任务占用，青色/蓝色为已覆盖需求，红色斜纹为供给缺口。文字显示满足分，悬停可看供给、占用、需求与缺口。</p>' +
       '<p><b>资源</b>：卡面显示「当前 → 下回合预测」。下回合预测包含已建建筑、任务占用和下一回合会完成的任务；建造后立即变化。</p>' +
-      '<p><b>高级停产</b>：高级建筑（衣服 / 家具 / 药品 / 教育）需要基础资源。食物、原料、电力、水任一不足时，所有高级建筑暂停产出，同时暂停其额外基础消耗；资源卡会标「低阶不足·停产」。</p>' +
+      '<p><b>高级减产</b>：高级建筑（衣服 / 家具 / 药品 / 教育）需要基础资源。食物、原料、电力、水每缺 1 项，高级产出 -25%；缺 2 项 -50%，缺 3 项 -75%，四项全缺停产。部分减产仍按原高级投入计算，停产时才暂停额外基础消耗；资源卡会标「低阶不足·产出 N%」。</p>' +
       '<p><b>劳力</b>：所有建筑最多占 1 人口；市场、仓库等部分蓝图 0 人口。启用建筑会占用人口，已占用 &gt; 人口时不能进入下回合。城市面板按类型用 − / + 调整启用数量，停用会同时停掉供给和额外消耗。</p>' +
       '<p><b>任务</b>：开局 5 张，T' + G.REFRESH.join('/T') + ' 各刷新 3 张。任务栏不限张数；限时任务过期消失；恶性任务不接也占出生负担 A。接取前看「接取后预计满意度」和变化量。接取条件是每种占用资源当前供给 &gt; 已占用，0 产出资源不能接；任务金币与人口奖励已提高。</p>' +
       '<p><b>终局</b>：第 30 回合按钮变为「结算本局」；接取前若预计完成回合超过 T' + G.MAX_TURNS + '，任务卡会标红提醒。</p>' +

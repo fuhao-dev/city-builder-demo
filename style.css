@@ -114,10 +114,12 @@ body {
 .bar.res-bar { display: flex; gap: 0; }
 .bar.res-bar i { border-radius: 0; }
 .bar.res-bar i.occ { background: linear-gradient(90deg, var(--gold), #ffe0a3); }
-.bar.res-bar i.free { background: linear-gradient(90deg, var(--teal), #9af0d8); }
-.res-card.advanced .bar.res-bar i.free { background: linear-gradient(90deg, var(--blue), #b9ccff); }
+.bar.res-bar i.dem { background: linear-gradient(90deg, var(--teal), #9af0d8); }
+.res-card.advanced .bar.res-bar i.dem { background: linear-gradient(90deg, var(--blue), #b9ccff); }
+.bar.res-bar i.shortfall { background: repeating-linear-gradient(45deg, var(--red), var(--red) 3px, #8e3140 3px, #8e3140 6px); }
 .res-card.over .bar.res-bar i.occ { background: var(--red); }
-.res-card.zero .bar.res-bar i.free { background: #26344a; }
+.res-card.short { border-color: rgba(245, 107, 107, 0.45); }
+.res-card.zero .bar.res-bar i.dem { background: #26344a; }
 .res-foot { margin-top: 4px; font-size: 8px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .res-flow { display: flex; align-items: baseline; gap: 3px; margin-top: 4px; flex-wrap: wrap; font-variant-numeric: tabular-nums; }
 .rf-label { font-size: 8px; color: var(--muted); }

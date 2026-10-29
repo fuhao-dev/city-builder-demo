@@ -1,5 +1,5 @@
 /*
- * 城建设计局 · 局内 v3.5.0 引擎
+ * 城建设计局 · 局内 v3.5.1 引擎
  * 纯逻辑、无 DOM，可在 Node 里直接 require 测试。
  *
  * 核心：30 回合 / 每回合 1 次建造 / 8 资源 / 人口常驻占用劳力 /
@@ -19,7 +19,7 @@
   var REP_START = 20;
   var REP_STEP = 10;
   var START_MONEY = 300;
-  var TASK_POP_BONUS = 4;
+  var TASK_POP_BONUS = 2;
   var SAVE_VERSION = 2;
   var START_POP = 5;
   var NODES = [10, 25, 45, 65];
@@ -298,26 +298,31 @@
       RES.forEach(function (r) { occ[r.key] = round2((occ[r.key] || 0) * (1 - discount)); });
     }
 
-    /* 基础资源不足时，所有高级建筑停产：产出和额外消耗都不生效。 */
-    var advancedStopped = false;
+    /* 低阶资源短缺按项计：每缺 1 项，高级产出 -25%；4 项全缺 = -100%。
+       短缺判定包含高级建筑自身的额外投入，所以高级投入被卡住时也会减产；
+       但不再一缺就全停，避免低阶刚够人口时高级完全不出。 */
+    var advancedShort = 0;
     if (advancedBuildings.length) {
-      var basicShort = false;
       RES.forEach(function (r) {
         if (r.group !== 'basic') return;
         var available = round2(supply[r.key] - (occ[r.key] || 0));
         var need = round2(state.pop * r.demand + (extra[r.key] || 0));
-        if (available < need) basicShort = true;
+        if (available < need) advancedShort += 1;
       });
-      if (basicShort) {
-        advancedStopped = true;
-        RES.forEach(function (r) {
-          extra[r.key] = Math.max(0, round2((extra[r.key] || 0) - (advancedExtra[r.key] || 0)));
-        });
-      }
+    }
+    var advancedMultiplier = round2(Math.max(0, 1 - advancedShort * 0.25));
+    var advancedStopped = advancedShort >= 4;
+    if (advancedStopped) {
+      RES.forEach(function (r) {
+        extra[r.key] = Math.max(0, round2((extra[r.key] || 0) - (advancedExtra[r.key] || 0)));
+      });
     }
     if (!advancedStopped) {
       advancedBuildings.forEach(function (b) {
-        addTo(supply, BUILDING_BY_ID[b.defId].out);
+        var out = BUILDING_BY_ID[b.defId].out;
+        var scaled = {};
+        Object.keys(out).forEach(function (k) { scaled[k] = round2(out[k] * advancedMultiplier); });
+        addTo(supply, scaled);
       });
     }
 
@@ -354,7 +359,10 @@
       sum: sum, penalty: penalty, over: over,
       baseSat: baseSat, turnPressure: turnPressure,
       sat: sat, repGain: repGain, popLoss: popLoss, market: market,
-      advancedStopped: advancedStopped, pop: state.pop
+      advancedStopped: advancedStopped, advancedShort: advancedShort,
+      advancedMultiplier: advancedMultiplier,
+      advancedOutputPct: Math.round(advancedMultiplier * 100),
+      pop: state.pop
     };
   }
 
@@ -364,6 +372,8 @@
     var c = compute();
     if (c.advancedStopped && (!state.last || !state.last.advancedStopped)) {
       log('低阶资源不足，高级建筑停产', 'warn');
+    } else if (c.advancedShort > 0 && (!state.last || state.last.advancedShort !== c.advancedShort)) {
+      log('低阶资源不足，高级建筑产出 -' + (c.advancedShort * 25) + '%', 'warn');
     }
     state.last = c;
     state.sat = c.sat;
