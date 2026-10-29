@@ -1,9 +1,9 @@
 /*
- * 城建设计局 · 局内 v3.3 引擎
+ * 城建设计局 · 局内 v3.4.1 引擎
  * 纯逻辑、无 DOM，可在 Node 里直接 require 测试。
  *
  * 核心：30 回合 / 每回合 1 次建造 / 8 资源 / 人口常驻占用劳力 /
- *       任务奖励声望与供给 / 满意度分段人口惩罚 / 建筑可停用。
+ *       任务奖励声望与供给 / 满意度分段人口惩罚 / 负值随回合加深 / 建筑可停用。
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
@@ -14,6 +14,8 @@
   var MAX_TURNS = 30;
   var CAP = 24;
   var DEFICIT = 13;
+  var NEG_STEP = 5;
+  var NEG_CAP = 5;
   var START_MONEY = 300;
   var SAVE_VERSION = 2;
   var START_POP = 5;
@@ -278,13 +280,16 @@
 
     var sum = round2(per.reduce(function (s, p) { return s + p.score; }, 0));
     var penalty = popPenalty(state.pop);
-    var sat = round2(sum - penalty - DEFICIT + market);
+    var baseSat = round2(sum - penalty - DEFICIT + market);
+    var negPenalty = baseSat < 0 ? Math.min(NEG_CAP, Math.floor((state.turn - 1) / NEG_STEP)) : 0;
+    var sat = round2(baseSat - negPenalty);
     var repGain = sat > 10 ? Math.min(5, Math.floor((sat - 10) / 10)) : 0;
     var popLoss = sat < 0 ? Math.min(3, 1 + Math.floor(-sat / 10)) : 0;
 
     return {
       supply: supply, demand: demand, extra: extra, occ: occ, per: per,
-      sum: sum, penalty: penalty, sat: sat, repGain: repGain, popLoss: popLoss, market: market,
+      sum: sum, penalty: penalty, baseSat: baseSat, negPenalty: negPenalty,
+      sat: sat, repGain: repGain, popLoss: popLoss, market: market,
       pop: state.pop
     };
   }
@@ -299,7 +304,8 @@
       state.rep += c.repGain;
       log('满意度 ' + c.sat.toFixed(1) + '，声望 +' + c.repGain, 'good');
     } else if (c.sat < 0) {
-      log('满意度 ' + c.sat.toFixed(1) + '，人口 -' + c.popLoss, 'bad');
+      log('满意度 ' + c.sat.toFixed(1) + (c.negPenalty ? '（负值惩罚 -' + c.negPenalty + '）' : '') +
+        '，人口 -' + c.popLoss, 'bad');
     } else {
       log('满意度 ' + c.sat.toFixed(1) + '，稳定', 'info');
     }
@@ -679,6 +685,8 @@
     NODES: NODES,
     REFRESH: REFRESH,
     DEFICIT: DEFICIT,
+    NEG_STEP: NEG_STEP,
+    NEG_CAP: NEG_CAP,
     START_MONEY: START_MONEY,
     START_POP: START_POP,
     buildingDef: function (id) { return BUILDING_BY_ID[id]; },

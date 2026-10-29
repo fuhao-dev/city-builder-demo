@@ -122,6 +122,7 @@ body {
 .res-scoreline b.up { color: var(--teal); }
 .res-scoreline b.down { color: var(--red); }
 .sat-detail { margin-left: 6px; color: var(--muted); font-size: 8px; }
+.sat-neg { color: var(--red); font-weight: 700; }
 .sat-math {
   margin-top: 10px;
   padding: 7px 9px;

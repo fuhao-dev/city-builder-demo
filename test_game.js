@@ -211,6 +211,37 @@ eq(G.buildingDef('wind').out.power, 8, '风电站 8 电');
 eq(G.buildingDef('deepwell').labor, 1, '深水井 1 劳力');
 eq(G.buildingDef('deepwell').out.water, 8, '深水井 8 水');
 
+/* 12.5 满意度负值随回合加深 */
+const negCases = [
+  { turn: 4,  next: 5,  neg: 0, sat: -6,  popLoss: 1 },
+  { turn: 9,  next: 10, neg: 1, sat: -7,  popLoss: 1 },
+  { turn: 14, next: 15, neg: 2, sat: -8,  popLoss: 1 },
+  { turn: 19, next: 20, neg: 3, sat: -9,  popLoss: 1 },
+  { turn: 24, next: 25, neg: 4, sat: -10, popLoss: 2 },
+  { turn: 29, next: 30, neg: 5, sat: -11, popLoss: 2 }
+];
+for (const c of negCases) {
+  const st = G.newGame(31);
+  G.chooseBlueprint(st.pendingDraw.options[0]);
+  const relief = st.board.find(t => t.defId === 'relief');
+  G.acceptTask(relief.uid);
+  st.turn = c.turn;
+  const f = G.forecast();
+  eq(f.last.negPenalty, c.neg, 'T' + c.next + ' 负值惩罚 ' + c.neg);
+  eq(f.last.sat, c.sat, 'T' + c.next + ' 满意度 ' + c.sat);
+  eq(f.last.popLoss, c.popLoss, 'T' + c.next + ' 掉人口 ' + c.popLoss);
+  eq(G.getState().turn, c.turn, 'T' + c.next + ' 预测不推进真实回合');
+}
+
+/* 正数满意度不触发负值惩罚 */
+const posState = G.newGame(32);
+G.chooseBlueprint(posState.pendingDraw.options[0]);
+G.build('farm');
+posState.turn = 29;
+const posF = G.forecast();
+ok(posF.last.baseSat > 0, 'T30 正数基础满意度');
+eq(posF.last.negPenalty, 0, '正数满意度不触发负值惩罚');
+
 /* 13. 30 回合自动跑：只验证不崩、不越界 */
 function autoPlay(seed) {
   const st = G.newGame(seed);
