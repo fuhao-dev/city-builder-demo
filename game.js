@@ -1,5 +1,5 @@
 /*
- * 城建设计局 · 局内 v3.4.1 引擎
+ * 城建设计局 · 局内 v3.4.2 引擎
  * 纯逻辑、无 DOM，可在 Node 里直接 require 测试。
  *
  * 核心：30 回合 / 每回合 1 次建造 / 8 资源 / 人口常驻占用劳力 /
@@ -16,6 +16,8 @@
   var DEFICIT = 13;
   var PRESSURE_MAX = 5;
   var PRESSURE_START = 6;
+  var REP_START = 20;
+  var REP_STEP = 10;
   var START_MONEY = 300;
   var SAVE_VERSION = 2;
   var START_POP = 5;
@@ -92,6 +94,18 @@
   /* ---------------- utils ---------------- */
 
   function round2(n) { return Math.round(n * 100) / 100; }
+
+  function repGainFor(sat) {
+    if (!(sat >= REP_START)) return 0;
+    return Math.min(5, 1 + Math.floor((sat - REP_START) / REP_STEP));
+  }
+
+  function taskStepForOver(over) {
+    if (!over) return 1;
+    if (over >= 3) return 0.5;
+    if (over === 2) return 0.6;
+    return 0.8;
+  }
 
   function emptyRes() {
     var o = {};
@@ -270,27 +284,30 @@
       var d = demand[r.key] || 0;
       var o = occ[r.key] || 0;
       var avail = Math.max(0, round2(supply[r.key] - o));
+      var over = Math.max(0, round2(o - supply[r.key]));
       var score = d <= 0 ? 10 : 10 * Math.min(1, avail / d);
       return {
         key: r.key, name: r.name, icon: r.icon, group: r.group,
         sup: round2(supply[r.key]), dem: d, occ: round2(o), avail: avail,
-        score: round2(score)
+        over: over, score: round2(score)
       };
     });
 
     var sum = round2(per.reduce(function (s, p) { return s + p.score; }, 0));
     var penalty = popPenalty(state.pop);
+    var over = round2(per.reduce(function (s, p) { return s + p.over; }, 0));
     var baseSat = round2(sum - penalty - DEFICIT + market);
     /* 后期压力：T1–6 为 0，T7 起线性增加到 T30 的 5；不区分基础满意度正负。 */
     var turnPressure = state.turn <= PRESSURE_START ? 0 :
       round2(Math.min(PRESSURE_MAX, (state.turn - PRESSURE_START) * PRESSURE_MAX / (MAX_TURNS - PRESSURE_START)));
     var sat = round2(baseSat - turnPressure);
-    var repGain = sat > 10 ? Math.min(5, Math.floor((sat - 10) / 10)) : 0;
+    var repGain = repGainFor(sat);
     var popLoss = sat < 0 ? Math.min(3, 1 + Math.floor(-sat / 10)) : 0;
 
     return {
       supply: supply, demand: demand, extra: extra, occ: occ, per: per,
-      sum: sum, penalty: penalty, baseSat: baseSat, turnPressure: turnPressure,
+      sum: sum, penalty: penalty, over: over,
+      baseSat: baseSat, turnPressure: turnPressure,
       sat: sat, repGain: repGain, popLoss: popLoss, market: market,
       pop: state.pop
     };
@@ -302,14 +319,15 @@
     var c = compute();
     state.last = c;
     state.sat = c.sat;
+    var extra = c.turnPressure ? '（回合压力 -' + c.turnPressure.toFixed(1) + '）' : '';
     if (c.repGain > 0) {
       state.rep += c.repGain;
-      log('满意度 ' + c.sat.toFixed(1) + '，声望 +' + c.repGain, 'good');
+      log('满意度 ' + c.sat.toFixed(1) + extra + '，声望 +' + c.repGain, 'good');
     } else if (c.sat < 0) {
-      log('满意度 ' + c.sat.toFixed(1) + (c.turnPressure ? '（回合压力 -' + c.turnPressure.toFixed(1) + '）' : '') +
-        '，人口 -' + c.popLoss, 'bad');
+      log('满意度 ' + c.sat.toFixed(1) + extra + '，人口 -' + c.popLoss, 'bad');
     } else {
-      log('满意度 ' + c.sat.toFixed(1) + '，稳定', 'info');
+      log('满意度 ' + c.sat.toFixed(1) + extra + '，稳定' +
+        (c.sat >= 10 ? '（未到声望线 ' + REP_START + '）' : ''), 'info');
     }
     if (c.popLoss > 0) {
       state.pop = Math.max(1, state.pop - c.popLoss);
@@ -318,10 +336,16 @@
   }
 
   function startTurn() {
+    var cap = compute();
+    var overMap = {};
+    cap.per.forEach(function (p) { overMap[p.key] = p.over; });
     var done = [];
     state.active.forEach(function (t) {
-      t.progress += 1;
       var def = TASK_BY_ID[t.defId];
+      var over = 0;
+      Object.keys(def.occ).forEach(function (k) { over += overMap[k] || 0; });
+      var step = taskStepForOver(over);
+      t.progress = round2(t.progress + step);
       if (t.progress >= def.duration) done.push(t);
     });
     done.forEach(completeTask);
@@ -524,6 +548,17 @@
     };
   }
 
+  function taskProgressStep(uid) {
+    var t = state.active.find(function (x) { return x.uid === uid; });
+    if (!t) return 1;
+    var c = compute();
+    var overMap = {};
+    c.per.forEach(function (p) { overMap[p.key] = p.over; });
+    var over = 0;
+    Object.keys(TASK_BY_ID[t.defId].occ).forEach(function (k) { over += overMap[k] || 0; });
+    return taskStepForOver(over);
+  }
+
   function acceptTask(uid) {
     if (state.over) return { ok: false, error: '游戏已结束' };
     if (state.pendingDraw) return { ok: false, error: '先选蓝图' };
@@ -689,6 +724,10 @@
     DEFICIT: DEFICIT,
     PRESSURE_MAX: PRESSURE_MAX,
     PRESSURE_START: PRESSURE_START,
+    REP_START: REP_START,
+    REP_STEP: REP_STEP,
+    repGainFor: repGainFor,
+    taskProgressStep: taskProgressStep,
     START_MONEY: START_MONEY,
     START_POP: START_POP,
     buildingDef: function (id) { return BUILDING_BY_ID[id]; },

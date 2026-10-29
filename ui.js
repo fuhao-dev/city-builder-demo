@@ -1,4 +1,4 @@
-/* 城建设计局 · v3.4.1 界面 */
+/* 城建设计局 · v3.4.2 界面 */
 (function () {
   'use strict';
 
@@ -128,8 +128,10 @@
     $('statMoney').textContent = fmt(S.money);
     $('statPop').textContent = S.pop;
     var sat = $('statSat');
+    var sat = $('statSat');
     sat.textContent = fmt1(S.sat);
-    sat.className = 'v sat ' + (S.sat < 0 ? 'neg' : S.sat <= 10 ? 'mid' : 'pos');
+    sat.className = 'v sat ' + (S.sat < 0 ? 'neg' : S.sat < G.REP_START ? 'mid' : 'pos');
+    sat.title = '满意度 ' + G.REP_START + ' 起才给声望；每 +' + G.REP_STEP + ' 再 +1';
     $('statRep').textContent = S.rep;
     var labor = $('statLabor');
     labor.textContent = used + ' / ' + S.pop;
@@ -173,7 +175,8 @@
         '<span class="res-arrow">→</span><b class="res-next' + deltaCls + '">' + (np ? fmt1(np.score) : '—') + '</b></div>' +
         '<div class="bar"><i style="width:' + left + '%"></i></div>' +
         '<div class="res-foot">' + (np
-          ? ((np.occ > 0 ? '占用 ' + np.occ + ' · ' : '') + '可用 ' + np.avail)
+          ? ((np.occ > 0 ? '占用 ' + np.occ + ' · ' : '') + '可用 ' + np.avail +
+            (np.over ? ' · <span class="res-over">超额 ' + np.over + '</span>' : ''))
           : '下回合待结算 · 上回合可用 ' + p.avail) + '</div>' +
         '</article>';
     }).join('');
@@ -184,11 +187,13 @@
         '<span class="sat-detail">八项 ' + fmt1(n.sum) + ' − 人口惩罚 ' + fmt1(n.penalty) +
         ' − 赤字 ' + G.DEFICIT +
         (pressure ? ' − <span class="sat-neg">回合压力 ' + fmt1(pressure) + '</span>' : '') +
-        (n.market ? ' + 市场 ' + n.market : '') + '</span>';
+        (n.market ? ' + 市场 ' + n.market : '') + '</span>' +
+        '<span class="sat-rep">' + nextLabel + '声望 +' + n.repGain + '</span>';
     } else {
       math = '上回合 <b>' + fmt1(c.sat) + '</b> · 下回合预测不可用（先处理蓝图/劳力）';
     }
     $('satMath').innerHTML = math;
+    $('statRepNext').textContent = n ? nextLabel + '声望 +' + n.repGain : '下回合 —';
   }
 
   function renderCity(S, used) {
@@ -265,8 +270,12 @@
 
   function renderTasks(S, fc) {
     var nextSat = fc && fc.last ? fmt1(fc.last.sat) : '—';
+    var nextRep = fc && fc.last ? fc.last.repGain : 0;
+    var nextOver = fc && fc.last ? fc.last.over : 0;
     var nextLabel = S.turn >= G.MAX_TURNS ? '终局' : '下回合';
-    $('taskHint').textContent = '任务栏 ' + S.board.length + ' · 进行中 ' + S.active.length + ' · ' + nextLabel + '预测 ' + nextSat;
+    $('taskHint').textContent = '任务栏 ' + S.board.length + ' · 进行中 ' + S.active.length +
+      ' · ' + nextLabel + '预测 ' + nextSat + ' · ' + nextLabel + '声望 +' + nextRep +
+      (nextOver ? ' · 超额 ' + nextOver : '');
     var board = S.board.slice().filter(function (t) {
       return taskFilter === 'all' || defOfTask(t).type === taskFilter;
     }).sort(function (a, b) {
@@ -283,17 +292,22 @@
         var d = defOfTask(t);
         var ft = G.forecastTask(t.uid);
         var preview = ft ? ft.sat : null;
-        var previewCls = preview === null ? '' : preview < 0 ? ' neg' : preview > 10 ? ' pos' : ' mid';
+        var previewCls = preview === null ? '' : preview < 0 ? ' neg' : preview >= G.REP_START ? ' pos' : ' mid';
         var deltaTxt = ft
-          ? '<span class="tc-delta ' + (ft.delta >= 0 ? 'pos' : 'neg') + '">变化 ' + (ft.delta >= 0 ? '+' : '') + fmt1(ft.delta) + '</span>'
+          ? '<span class="tc-delta ' + (ft.delta >= 0 ? 'pos' : 'neg') + '">变化 ' + (ft.delta >= 0 ? '+' : '') + fmt1(ft.delta) +
+            ' · ' + (S.turn >= G.MAX_TURNS ? '终局' : '下回合') + '声望 +' + ft.last.repGain + '</span>'
           : '';
         var extra = '';
+        if (ft && ft.last.over > nextOver) {
+          extra += '<div class="tc-deadline urgent">接取后总超额 ' + ft.last.over +
+            '；相关任务进度变慢</div>';
+        }
         if (d.type === 'timed') {
           var left = t.acceptBy - S.turn;
-          extra = '<div class="tc-deadline' + (left <= 1 ? ' urgent' : '') + '">限时：T' + t.acceptBy + ' 前接' +
+          extra += '<div class="tc-deadline' + (left <= 1 ? ' urgent' : '') + '">限时：T' + t.acceptBy + ' 前接' +
             (left <= 1 ? '（最后回合）' : '（剩 ' + left + ' 回合）') + '</div>';
         } else if (d.type === 'malignant') {
-          extra = '<div class="tc-deadline">出生负担 A：' + occText(d.burdenA) +
+          extra += '<div class="tc-deadline">出生负担 A：' + occText(d.burdenA) +
             (t.aReleased ? '（已释放）' : '（接取前持续占用）') + '</div>';
         }
         var finishTurn = S.turn + d.duration;
@@ -322,12 +336,15 @@
     } else {
       act.innerHTML = S.active.map(function (t) {
         var d = defOfTask(t);
+        var step = G.taskProgressStep(t.uid);
+        var remain = Math.max(0, (d.duration - t.progress) / step);
         var pct = Math.min(100, Math.round((t.progress / d.duration) * 100));
-        var finishTurn = S.turn + (d.duration - t.progress);
+        var finishTurn = S.turn + Math.ceil(remain);
         var late = finishTurn > G.MAX_TURNS;
+        var slow = step < 1 ? '同资源超额，进度 ×' + step + '；' : '';
         var foot = late
-          ? '本局内无法完成（预计 T' + finishTurn + '）'
-          : (t.progress + 1 >= d.duration ? '下回合完成' : '还需 ' + (d.duration - t.progress) + ' 回合');
+          ? slow + '本局内无法完成（预计 T' + finishTurn + '）'
+          : (remain <= 1 ? slow + '下回合完成' : slow + '还需约 ' + Math.ceil(remain) + ' 回合');
         return '<article class="task-card active ' + d.type + '">' +
           '<div class="tc-top"><b>' + d.name + '</b><span class="badge">进行中</span>' +
           '<span class="tc-dur">' + t.progress + ' / ' + d.duration + '</span></div>' +
@@ -369,7 +386,8 @@
     return '<div class="intro">' +
       '<div class="intro-goal">目标：30 回合累计声望，<b>最终得分只看累计声望</b>。</div>' +
       '<ul>' +
-      '<li><b>满意度</b> = 八项资源满足分 − 人口惩罚 − 赤字 ' + G.DEFICIT + ' − 回合压力。&gt;10 每回合给声望（每 +10 多 1，最多 5）；&lt;0 掉人口；0–10 稳定。</li>' +
+      '<li><b>满意度</b> = 八项资源满足分 − 人口惩罚 − 赤字 ' + G.DEFICIT + ' − 回合压力。&lt;0 掉人口；0–19.9 稳定、不加声望；20–29.9 声望 +1，之后每 +10 再 +1（最高 +5）。</li>' +
+      '<li><b>超额减速</b>：同一资源占用超过供给时，相关任务进度变慢：超额 1 为 0.8 速、2 为 0.6 速、3 及以上为 0.5 速。集中叠接同资源会拖慢整批任务。</li>' +
       '<li><b>回合压力</b>：T1–6 为 0，T7 起线性增加到 T30 的 −5；不管基础满意度正负都扣，后期越来越难拿声望。</li>' +
       '<li><b>每回合</b> 1 次建造；人口既提供劳力也产生需求，劳力不足不能进入下回合。</li>' +
       '<li><b>任务</b> 开局 4 张，T' + G.REFRESH.join('/T') + ' 各刷新 2 张；普通任务也给声望，限时任务过期消失。</li>' +
@@ -381,7 +399,8 @@
     return '<div class="rules">' +
       '<div class="end-kicker">30 回合 · 最终得分 = 累计声望</div>' +
       '<h2>规则速览</h2>' +
-      '<p><b>满意度</b>：八项资源各 0–10 分，减去人口惩罚、赤字 ' + G.DEFICIT + ' 和回合压力。&gt;10 才给声望，每多 10 分 +1（最多 5）；&lt;0 掉人口；0–10 稳定。</p>' +
+      '<p><b>满意度</b>：八项资源各 0–10 分，减去人口惩罚、赤字 ' + G.DEFICIT + ' 和回合压力。&lt;0 掉人口；0–19.9 稳定、不加声望；20–29.9 每回合 +1，30–39.9 +2，40–49.9 +3，50–59.9 +4，≥60 +5（最高 5）。</p>' +
+      '<p><b>超额减速</b>：同一资源被任务占用超过供给时，相关任务进度变慢：超额 1 → 0.8 速，2 → 0.6 速，3+ → 0.5 速。任务仍会推进，但叠接同资源会拖慢整批任务，奖励不再免费。</p>' +
       '<p><b>回合压力</b>：T1–6 为 0，T7 起线性增加，T30 为 −5；无论基础满意度正负都扣。后期想拿声望，需要比前期更高的基础供给。</p>' +
       '<p><b>资源</b>：卡面显示「上回合 → 下回合预测」。下回合预测包含已建建筑、任务占用和下一回合会完成的任务；建造后立即变化。</p>' +
       '<p><b>劳力</b>：启用建筑会占用人口，已占用 &gt; 人口时不能进入下回合。城市面板按类型用 − / + 调整启用数量，停用会同时停掉供给和额外消耗。</p>' +

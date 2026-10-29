@@ -1,4 +1,4 @@
-/* 局内 v3.4.1 引擎测试：起手 / 劳力 / 停用 / 任务 / 限时 / 恶性 / 蓝图 / 回合压力 / 30 回合 */
+/* 局内 v3.4.2 引擎测试：起手 / 劳力 / 停用 / 任务 / 限时 / 恶性 / 蓝图 / 回合压力 / 30 回合 */
 const G = require('./game.js');
 
 let passed = 0;
@@ -211,7 +211,7 @@ eq(G.buildingDef('wind').out.power, 8, '风电站 8 电');
 eq(G.buildingDef('deepwell').labor, 1, '深水井 1 劳力');
 eq(G.buildingDef('deepwell').out.water, 8, '深水井 8 水');
 
-/* 12.5 回合压力：T1–6 为 0，T7 起线性增加到 T30 的 -5，正负基础满意度都扣 */
+/* 12.5 回合压力：T1–6 为 0，T7 起线性增加到 T30 的 -5；正负基础满意度都扣 */
 const negCases = [
   { turn: 4,  next: 5,  pressure: 0,    sat: -6,    popLoss: 1 },
   { turn: 9,  next: 10, pressure: 0.83, sat: -6.83, popLoss: 1 },
@@ -251,6 +251,43 @@ eq(zeroF.last.baseSat, 0, 'T30 基础满意度为 0');
 eq(zeroF.last.turnPressure, 5, '基础满意度 0 时 T30 也扣 5');
 eq(zeroF.last.sat, -5, '基础满意度 0 时 T30 为 -5');
 eq(zeroF.last.popLoss, 1, '基础满意度 0 时 T30 掉 1 人口');
+
+/* 12.6 声望档位：20 起才 +1，此前 10–19.9 只有稳定 */
+eq(G.repGainFor(11.9), 0, '11.9 不加声望');
+eq(G.repGainFor(12.4), 0, '12.4 不加声望');
+eq(G.repGainFor(18.4), 0, '18.4 不加声望');
+eq(G.repGainFor(19.99), 0, '19.99 不加声望');
+eq(G.repGainFor(20), 1, '20 声望 +1');
+eq(G.repGainFor(29.99), 1, '29.99 声望 +1');
+eq(G.repGainFor(30), 2, '30 声望 +2');
+eq(G.repGainFor(60), 5, '60 声望 +5');
+eq(G.repGainFor(70), 5, '70 封顶 +5');
+
+/* 12.7 同资源超额：任务进度减半，叠接三个原料任务会明显拖慢整批任务 */
+const overState = G.newGame(51);
+G.chooseBlueprint(overState.pendingDraw.options[0]);
+for (const id of ['farm', 'well', 'mine', 'plant']) {
+  if (!G.build(id).ok) throw new Error('超额测试建筑失败: ' + id);
+  G.endTurn();
+}
+G.endTurn(); // T6
+overState.board = [
+  { uid: 'ov-mining', defId: 'mining', spawnTurn: 6, acceptBy: 99 },
+  { uid: 'ov-pollution', defId: 'pollution', spawnTurn: 6, acceptBy: 99 },
+  { uid: 'ov-prospect', defId: 'prospect', spawnTurn: 6, acceptBy: 99 }
+];
+for (const uid of ['ov-mining', 'ov-pollution', 'ov-prospect']) {
+  eq(G.acceptTask(uid).ok, true, '接取超额任务 ' + uid);
+}
+const overF = G.forecast();
+eq(overF.last.over, 3, '原料占用 9 - 供给 6 = 超额 3');
+eq(overF.last.baseSat, 12, '超额不额外扣满意度，资源分已为 0');
+eq(overF.last.sat, 11.79, 'T7 基础满意度 12 - 回合压力 0.21');
+eq(overF.last.repGain, 0, '11.79 不给声望');
+eq(G.taskProgressStep('ov-mining'), 0.5, '超额 3 时每回合只推进 0.5');
+G.endTurn(); // T7
+eq(G.getState().active.every(t => t.progress === 0.5), true, '三个任务都只推进 0.5');
+eq(G.getState().active.every(t => t.progress < 1), true, '没有任务在 T7 完成');
 
 /* 13. 30 回合自动跑：只验证不崩、不越界 */
 function autoPlay(seed) {
