@@ -15,6 +15,7 @@
   var CAP = 24;
   var DEFICIT = 13;
   var START_MONEY = 300;
+  var SAVE_VERSION = 2;
   var START_POP = 5;
   var NODES = [10, 25, 45, 65];
   var REFRESH = [6, 11, 16, 21, 26];
@@ -47,8 +48,8 @@
   var BLUEPRINTS = [
     { id: 'greenhouse', name: '温室',     icon: '🌱', cost: 90,  labor: 1, max: 2, out: { food: 8 } },
     { id: 'ranch',      name: '牧场',     icon: '🐄', cost: 120, labor: 2, max: 2, out: { food: 12 }, extra: { material: 1 } },
-    { id: 'wind',       name: '风电站',   icon: '🌬', cost: 110, labor: 2, max: 2, out: { power: 8 } },
-    { id: 'deepwell',   name: '深水井',   icon: '🕳', cost: 100, labor: 2, max: 2, out: { water: 8 } },
+    { id: 'wind',       name: '风电站',   icon: '🌬', cost: 110, labor: 1, max: 2, out: { power: 8 } },
+    { id: 'deepwell',   name: '深水井',   icon: '🕳', cost: 100, labor: 1, max: 2, out: { water: 8 } },
     { id: 'textile',    name: '纺织厂',   icon: '🧵', cost: 160, labor: 3, max: 2, out: { clothes: 5 }, extra: { power: 3, water: 3 } },
     { id: 'workshop',   name: '家具工坊', icon: '🪚', cost: 160, labor: 3, max: 2, out: { furniture: 4 }, extra: { material: 4, power: 3 } },
     { id: 'pharm2',     name: '药厂',     icon: '🧪', cost: 180, labor: 4, max: 1, out: { medicine: 3 }, extra: { water: 3, power: 3, material: 2 } },
@@ -103,19 +104,18 @@
     });
   }
 
-  function mulberry32(a) {
-    return function () {
-      a |= 0; a = (a + 0x6D2B79F5) | 0;
-      var t = Math.imul(a ^ (a >>> 15), 1 | a);
-      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
+  function nextRandom() {
+    state.rngState = (state.rngState + 0x6D2B79F5) >>> 0;
+    var t = state.rngState;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   }
 
-  function shuffle(arr, rng) {
+  function shuffle(arr) {
     var a = arr.slice();
     for (var i = a.length - 1; i > 0; i--) {
-      var j = Math.floor(rng() * (i + 1));
+      var j = Math.floor(nextRandom() * (i + 1));
       var tmp = a[i]; a[i] = a[j]; a[j] = tmp;
     }
     return a;
@@ -202,17 +202,17 @@
         !isTaskPresent(d.id) && state.spawnedNormals[block].indexOf(d.id) < 0;
     });
     if (normals.length) {
-      var pick = normals[Math.floor(state.rng() * normals.length)];
+      var pick = normals[Math.floor(nextRandom() * normals.length)];
       addTask(pick.id, state.turn);
     }
     var timedPool = TASK_DEFS.filter(function (d) {
       return d.type === 'timed' && d.blocks.indexOf(block) >= 0;
     });
     var malignantPool = TASK_DEFS.filter(function (d) { return d.type === 'malignant'; });
-    if (state.rng() < 0.5 && timedPool.length) {
-      addTask(timedPool[Math.floor(state.rng() * timedPool.length)].id, state.turn);
+    if (nextRandom() < 0.5 && timedPool.length) {
+      addTask(timedPool[Math.floor(nextRandom() * timedPool.length)].id, state.turn);
     } else if (malignantPool.length) {
-      addTask(malignantPool[Math.floor(state.rng() * malignantPool.length)].id, state.turn);
+      addTask(malignantPool[Math.floor(nextRandom() * malignantPool.length)].id, state.turn);
     }
     log('任务栏刷新：T' + state.turn + ' 追加 2 张', 'task');
   }
@@ -284,7 +284,8 @@
 
     return {
       supply: supply, demand: demand, extra: extra, occ: occ, per: per,
-      sum: sum, penalty: penalty, sat: sat, repGain: repGain, popLoss: popLoss, market: market
+      sum: sum, penalty: penalty, sat: sat, repGain: repGain, popLoss: popLoss, market: market,
+      pop: state.pop
     };
   }
 
@@ -326,7 +327,7 @@
   function openDraw(node, opening) {
     var pool = BLUEPRINTS.filter(function (b) { return state.unlocked.indexOf(b.id) < 0; });
     if (!pool.length) return false;
-    var options = shuffle(pool, state.rng).slice(0, 3).map(function (b) { return b.id; });
+    var options = shuffle(pool).slice(0, 3).map(function (b) { return b.id; });
     state.pendingDraw = { options: options, node: node || null, opening: !!opening };
     log(opening ? '开局蓝图：3 选 1' : '声望 ' + node + '：蓝图 3 选 1', 'draw');
     return true;
@@ -467,6 +468,54 @@
     }
   }
 
+  /* 下一回合结算预测：临时 clone 后真正走一遍 endTurn，再恢复现场。
+     返回 { last, final, over, turn }；不能结算（蓝图/劳力）时返回 null。 */
+  function forecast() {
+    if (!state || state.over || state.pendingDraw) return null;
+    var real = state;
+    var copy = JSON.parse(JSON.stringify(state));
+    state = copy;
+    try {
+      var r = endTurn();
+      if (!r || !r.ok) return null;
+      return {
+        last: copy.last,
+        final: copy.final || null,
+        over: !!copy.over,
+        turn: copy.turn,
+        pop: copy.pop
+      };
+    } finally {
+      state = real;
+    }
+  }
+
+  /* 接取某个任务后的下回合满意度；delta 相对“现在结束回合”的下回合预测。 */
+  function forecastTask(uid) {
+    if (!state || state.over || state.pendingDraw) return null;
+    var base = forecast();
+    if (!base || !base.last) return null;
+    var real = state;
+    var copy = JSON.parse(JSON.stringify(state));
+    state = copy;
+    var after = null;
+    try {
+      var a = acceptTask(uid);
+      if (!a.ok) return null;
+      var r = endTurn();
+      if (!r || !r.ok) return null;
+      after = copy.last;
+    } finally {
+      state = real;
+    }
+    if (!after) return null;
+    return {
+      sat: after.sat,
+      delta: round2(after.sat - base.last.sat),
+      last: after
+    };
+  }
+
   function acceptTask(uid) {
     if (state.over) return { ok: false, error: '游戏已结束' };
     if (state.pendingDraw) return { ok: false, error: '先选蓝图' };
@@ -543,8 +592,9 @@
     if (!isFinite(s)) s = 1;
     s = s >>> 0;
     state = {
+      version: SAVE_VERSION,
       seed: s,
-      rng: mulberry32(s),
+      rngState: s,
       turn: 1,
       money: START_MONEY,
       pop: START_POP,
@@ -576,9 +626,38 @@
 
   function getState() { return state; }
 
+  function exportState() {
+    if (!state) return null;
+    return JSON.parse(JSON.stringify(state));
+  }
+
+  function importState(data) {
+    var s = data;
+    if (typeof s === 'string') {
+      try { s = JSON.parse(s); } catch (e) { return { ok: false, error: '存档损坏' }; }
+    }
+    if (!s || typeof s !== 'object') return { ok: false, error: '存档为空' };
+    if (s.version !== SAVE_VERSION) return { ok: false, error: '存档版本不兼容' };
+    if (typeof s.turn !== 'number' || typeof s.rngState !== 'number' ||
+        !Array.isArray(s.buildings) || !Array.isArray(s.board) ||
+        !Array.isArray(s.active) || !Array.isArray(s.unlocked)) {
+      return { ok: false, error: '存档字段不完整' };
+    }
+    state = s;
+    if (!state.stats) state.stats = { tasksDone: 0, built: 0, popLost: 0 };
+    if (!state.spawnedNormals) state.spawnedNormals = { 1: [], 2: [], 3: [] };
+    if (!state.taskSupply) state.taskSupply = emptyRes();
+    return { ok: true };
+  }
+
   return {
     newGame: newGame,
     getState: getState,
+    exportState: exportState,
+    importState: importState,
+    forecast: forecast,
+    forecastTask: forecastTask,
+    SAVE_VERSION: SAVE_VERSION,
     build: build,
     buildStatus: buildStatus,
     setBuildingActive: setBuildingActive,

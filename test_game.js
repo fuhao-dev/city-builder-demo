@@ -167,7 +167,51 @@ eq(s4.pendingDraw.node, 10, '节点 10');
 ok(G.chooseBlueprint(s4.pendingDraw.options[0]).ok, '选节点蓝图');
 eq(s4.unlocked.length, 2, '开局 + 节点 = 2 张');
 
-/* 12. 30 回合自动跑：只验证不崩、不越界 */
+/* 12. 存档、下回合预测、蓝图差异化 */
+let sv = G.newGame(21);
+G.chooseBlueprint(sv.pendingDraw.options[0]);
+let svMoney = sv.money;
+ok(G.build('farm').ok, '存档测试：建农场');
+let svBuildings = sv.buildings.length;
+let fc = G.forecast();
+ok(!!fc && !!fc.last, '下回合预测可用');
+eq(fc.last.per[0].sup, 9, '预测食物 = 基础 3 + 农场 6');
+eq(fc.last.sat, 4, '预测满意度 4');
+eq(sv.turn, 1, '预测不推进真实回合');
+eq(sv.buildings.length, svBuildings, '预测不增删建筑');
+eq(sv.money, svMoney - 60, '预测不改真实金钱');
+
+let exported = G.exportState();
+ok(exported && exported.version === G.SAVE_VERSION, '存档带版本号');
+ok(typeof exported.rngState === 'number' && !exported.rng, '存档保存随机数状态，不存函数');
+
+G.newGame(22);
+G.chooseBlueprint(G.getState().pendingDraw.options[0]);
+let imported = G.importState(exported);
+ok(imported.ok, '读档成功');
+eq(G.getState().seed, 21, '读档种子一致');
+eq(G.getState().money, svMoney - 60, '读档金钱一致');
+eq(G.getState().buildings.length, svBuildings, '读档建筑一致');
+let fc2 = G.forecast();
+eq(fc2.last.sat, fc.last.sat, '读档后预测一致');
+
+let badSave = Object.assign({}, exported, { version: 0 });
+ok(G.importState(badSave).ok === false, '版本不兼容的存档被拒绝');
+
+G.importState(exported);
+let reclaimT = G.getState().board.find(t => t.defId === 'reclaim');
+let ft = G.forecastTask(reclaimT.uid);
+ok(!!ft && typeof ft.sat === 'number', '接取后预测可用');
+ok(ft.delta <= 0, '开垦占用食物，接取后预测下降');
+eq(G.getState().turn, 1, '接取预测不推进真实回合');
+eq(G.getState().board.length, 4, '接取预测不移除真实任务');
+
+eq(G.buildingDef('wind').labor, 1, '风电站 1 劳力');
+eq(G.buildingDef('wind').out.power, 8, '风电站 8 电');
+eq(G.buildingDef('deepwell').labor, 1, '深水井 1 劳力');
+eq(G.buildingDef('deepwell').out.water, 8, '深水井 8 水');
+
+/* 13. 30 回合自动跑：只验证不崩、不越界 */
 function autoPlay(seed) {
   const st = G.newGame(seed);
   let guard = 0;

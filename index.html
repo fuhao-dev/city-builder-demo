@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>城建设计局 · 30 回合经营 v3.3</title>
+  <title>城建设计局 · 30 回合经营 v3.4</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -12,7 +12,7 @@
       <span class="logo">🏙</span>
       <div>
         <h1>城建设计局</h1>
-        <p>30 回合 · 人口 / 满意度 / 任务</p>
+        <p>30 回合 · 最终得分 = 累计声望</p>
       </div>
     </div>
     <div class="hud-stats">
@@ -32,7 +32,7 @@
       <section class="panel res-panel">
         <div class="panel-head">
           <h2>资源</h2>
-          <span class="hint">上回合结算 · 任务占用影响下回合</span>
+          <span class="hint">上回合 → 下回合预测 · 建造后更新</span>
         </div>
         <div id="resGrid" class="res-grid"></div>
         <div id="satMath" class="sat-math"></div>
@@ -85,6 +85,8 @@
   <footer class="action-bar">
     <button id="btnNext" class="btn primary" type="button">进入下回合 →</button>
     <button id="btnRestart" class="btn ghost" type="button">新游戏</button>
+    <button id="btnHelp" class="btn ghost" type="button">规则</button>
+    <span class="save-note" id="saveNote">自动存档</span>
     <div class="action-hint" id="actionHint"></div>
   </footer>
 
