@@ -282,7 +282,7 @@
         var preview = ft ? ft.sat : null;
         var previewCls = preview === null ? '' : preview < 0 ? ' neg' : preview > 10 ? ' pos' : ' mid';
         var deltaTxt = ft
-          ? '<span class="tc-delta ' + (ft.delta >= 0 ? 'pos' : 'neg') + '">' + (ft.delta >= 0 ? '+' : '') + fmt1(ft.delta) + '</span>'
+          ? '<span class="tc-delta ' + (ft.delta >= 0 ? 'pos' : 'neg') + '">变化 ' + (ft.delta >= 0 ? '+' : '') + fmt1(ft.delta) + '</span>'
           : '';
         var extra = '';
         if (d.type === 'timed') {
@@ -305,7 +305,7 @@
           '<div class="tc-occ">' + occLabel + '：' + occText(d.occ) + '</div>' +
           '<div class="tc-reward">' + rewardText(d) + '</div>' +
           extra +
-          '<div class="tc-foot"><span class="tc-sat' + previewCls + '">接取后预计 ' +
+          '<div class="tc-foot"><span class="tc-sat' + previewCls + '">接取后预计满意度 ' +
           (preview === null ? '—' : fmt1(preview)) + deltaTxt + '</span>' +
           '<button class="btn small primary" data-accept="' + t.uid + '"' + (S.pendingDraw || S.over ? ' disabled' : '') + ' type="button">接取</button></div>' +
           '</article>';
@@ -380,7 +380,7 @@
       '<p><b>满意度</b>：八项资源各 0–10 分，减去人口惩罚和赤字 ' + G.DEFICIT + '。&gt;10 才给声望，每多 10 分 +1（最多 5）；&lt;0 掉人口；0–10 稳定。</p>' +
       '<p><b>资源</b>：卡面显示「上回合 → 下回合预测」。下回合预测包含已建建筑、任务占用和下一回合会完成的任务；建造后立即变化。</p>' +
       '<p><b>劳力</b>：启用建筑会占用人口，已占用 &gt; 人口时不能进入下回合。城市面板按类型用 − / + 调整启用数量，停用会同时停掉供给和额外消耗。</p>' +
-      '<p><b>任务</b>：开局 4 张，T' + G.REFRESH.join('/T') + ' 各刷新 2 张。任务栏不限张数；限时任务过期消失；恶性任务不接也占出生负担 A。接取前看「接取后预计」和变化量。</p>' +
+      '<p><b>任务</b>：开局 4 张，T' + G.REFRESH.join('/T') + ' 各刷新 2 张。任务栏不限张数；限时任务过期消失；恶性任务不接也占出生负担 A。接取前看「接取后预计满意度」和变化量。</p>' +
       '<p><b>终局</b>：第 30 回合按钮变为「结算本局」；接取前若预计完成回合超过 T' + G.MAX_TURNS + '，任务卡会标红提醒。</p>' +
       '<button class="btn primary" data-close-help="1" type="button">知道了</button>' +
       '</div>';

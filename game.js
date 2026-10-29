@@ -51,7 +51,7 @@
     { id: 'wind',       name: '风电站',   icon: '🌬', cost: 110, labor: 1, max: 2, out: { power: 8 } },
     { id: 'deepwell',   name: '深水井',   icon: '🕳', cost: 100, labor: 1, max: 2, out: { water: 8 } },
     { id: 'textile',    name: '纺织厂',   icon: '🧵', cost: 160, labor: 3, max: 2, out: { clothes: 5 }, extra: { power: 3, water: 3 } },
-    { id: 'workshop',   name: '家具工坊', icon: '🪚', cost: 160, labor: 3, max: 2, out: { furniture: 4 }, extra: { material: 4, power: 3 } },
+    { id: 'workshop',   name: '家具工坊', icon: '🛠', cost: 160, labor: 3, max: 2, out: { furniture: 4 }, extra: { material: 4, power: 3 } },
     { id: 'pharm2',     name: '药厂',     icon: '🧪', cost: 180, labor: 4, max: 1, out: { medicine: 3 }, extra: { water: 3, power: 3, material: 2 } },
     { id: 'academy',    name: '学院',     icon: '🎓', cost: 150, labor: 3, max: 1, out: { education: 4 }, extra: { power: 2, water: 2 } },
     { id: 'market',     name: '市场',     icon: '🏪', cost: 90,  labor: 0, max: 1, out: {}, bonus: { sat: 5 } },
