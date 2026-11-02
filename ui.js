@@ -1,12 +1,14 @@
-/* 城建设计局 · v3.11.0 界面 */
+/* 城建设计局 · v3.12.0 界面 */
 (function () {
   'use strict';
 
   var G = window.DSHGame;
+  var P = window.DSHProgress;
   var $ = function (id) { return document.getElementById(id); };
   var BEST_KEY = 'dsh_city_best_rep_v33';
   var SAVE_KEY = 'dsh_city_save_v34';
-  var CAMPAIGN_KEY = 'dsh_city_campaign_v1';
+  var CAMPAIGN_KEY = 'dsh_city_campaign_v2';
+  var LEGACY_CAMPAIGN_KEY = 'dsh_city_campaign_v1';
   var toastTimer = null;
   var taskFilter = 'all';
   var showHelp = false;
@@ -15,6 +17,8 @@
   var drawKey = null;
   var modalHidden = false;
   var selectingScenario = false;
+  var configuringScenario = null;
+  var pendingRunConfig = G.normalizeRunConfig();
   var pendingSeed;
 
   var BP_NOTES = {
@@ -40,6 +44,12 @@
   function fmt(n) { return Math.round(n).toLocaleString('zh-CN'); }
   function fmt1(n) { return (Math.round(n * 10) / 10).toFixed(1); }
   function fmtNet(n) { return (n > 0 ? '+' : '') + (Math.round(n * 100) / 100).toFixed(2); }
+  function fmtRate(n) { return String(Number(n.toFixed(4))); }
+  function configLabel(config) {
+    var c = G.normalizeRunConfig(config);
+    return G.DIFFICULTIES.filter(function (d) { return d.id === c.difficultyId; })[0].name + ' · ' +
+      G.BUFFS.filter(function (b) { return b.id === c.buffId; })[0].name;
+  }
   function esc(s) {
     return String(s).replace(/[&<>"]/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
@@ -52,25 +62,14 @@
     try { localStorage.setItem(BEST_KEY, String(rep)); } catch (e) {}
   }
   function loadCampaign() {
-    var data;
-    try { data = JSON.parse(localStorage.getItem(CAMPAIGN_KEY) || '{}'); } catch (e) { data = {}; }
-    var result = {};
-    G.SCENARIOS.forEach(function (s) {
-      var record = data && data[s.id];
-      if (record && record.cleared === true) {
-        result[s.id] = { cleared: true, bestRep: Math.max(0, Number(record.bestRep) || 0) };
-      }
-    });
-    return result;
+    function read(key) { try { return JSON.parse(localStorage.getItem(key) || '{}'); } catch (e) { return {}; } }
+    return P.load(read(CAMPAIGN_KEY), read(LEGACY_CAMPAIGN_KEY));
   }
   function recordClear(S) {
-    var f = S.final;
-    if (!S.over || !f || f.cleared !== true || !S.scenarioId || f.scenarioId !== S.scenarioId) return;
     var records = loadCampaign();
-    var previous = records[S.scenarioId];
-    if (previous && previous.bestRep >= f.rep) return;
-    records[S.scenarioId] = { cleared: true, bestRep: f.rep };
-    try { localStorage.setItem(CAMPAIGN_KEY, JSON.stringify(records)); } catch (e) {}
+    var updated = P.record(records, S);
+    if (JSON.stringify(updated) === JSON.stringify(records)) return;
+    try { localStorage.setItem(CAMPAIGN_KEY, JSON.stringify(updated)); } catch (e) {}
   }
   function persist() {
     var note = $('saveNote');
@@ -156,8 +155,9 @@
   }
 
   function render() {
-    if (selectingScenario) {
-      $('modalCard').innerHTML = scenarioSelectionHtml();
+    if (selectingScenario || configuringScenario) {
+      var detailsOpen = !!$('modalCard').querySelector('.setup-details[open]');
+      $('modalCard').innerHTML = configuringScenario ? runSetupHtml(detailsOpen) : scenarioSelectionHtml();
       $('modal').classList.remove('hidden');
       $('btnShowModal').classList.add('hidden');
       $('btnNext').disabled = true;
@@ -210,7 +210,7 @@
     var nextPop = G.nextTownPop();
     $('statTownNext').textContent = nextPop ? '下阶 P' + nextPop : '已满级';
     $('statBest').textContent = best ? best : '—';
-    $('statBest').title = '本机最佳最终声望';
+    $('statBest').title = '本机最高最终声望（全部难度与 BUFF）';
   }
 
   function renderResources(S, fc, current) {
@@ -303,7 +303,7 @@
         '<p class="goal-note">本局记录声望，不参与关卡验收。可在选关后开启新的建设目标。</p>';
       return;
     }
-    $('gameSubtitle').textContent = goal.name + ' · T30 验收建设目标';
+    $('gameSubtitle').textContent = goal.name + ' · ' + configLabel(S.runConfig);
     var status = S.over ? (S.final.cleared ? '已通关' : '未通关') :
       goal.cleared ? '当前达标 · 待 T30 验收' : '建设中 · 剩 ' + (G.MAX_TURNS - S.turn) + ' 回合';
     $('goalPanel').innerHTML = '<div class="goal-heading"><h2>' + esc(goal.name) + ' · 建设目标</h2>' +
@@ -318,17 +318,49 @@
     return '<div class="modal-head"><h2>选择建设关卡</h2>' +
       '<p>每关 30 回合，达成全部建设目标才算通关。' + G.SCENARIOS.length + ' 关均已开放，后 3 关挑战产业配套、民生品质与综合扩张。</p></div>' +
       '<div class="scenario-grid">' + G.SCENARIOS.map(function (s, index) {
-        var record = records[s.id];
+        var count = Object.keys(records).filter(function (key) { return key.indexOf(s.id + '|') === 0; }).length;
         return '<button class="scenario-card" data-scenario="' + s.id + '" type="button">' +
           '<span class="scenario-tag">第 ' + (index + 1) + ' 关 · ' + s.tag + '</span><span class="scenario-icon">' + s.icon + '</span>' +
           '<h3>' + s.name + '</h3><p>' + s.description + '</p>' +
           '<ul>' + s.requirements.map(function (r) { return '<li>' + r.label + ' ≥ ' + r.target + '</li>'; }).join('') + '</ul>' +
-          '<span class="scenario-record' + (record ? ' cleared' : '') + '">' +
-          (record ? '✓ 已通关 · 最佳通关声望 ' + fmt(record.bestRep) : '尚未通关') + '</span>' +
-          '<span class="pick-btn">开始建设</span></button>';
+          '<span class="scenario-record' + (count ? ' cleared' : '') + '">' +
+          (count ? '✓ 已通关 · ' + count + ' 种配置' : '尚未通关') + '</span>' +
+          '<span class="pick-btn">选择难度与 BUFF</span></button>';
       }).join('') + '</div><p class="goal-note">' +
-      (G.getState() ? '开始新关会替换当前进度；通关记录和最佳声望保留。' : '先选关卡，再选择开局蓝图。') + '</p>' +
+      (G.getState() ? '确认开局时替换当前进度；通关记录和最佳声望保留。' : '选择关卡、难度和 BUFF 后，进入开局蓝图。') + '</p>' +
       (G.getState() ? '<div class="modal-actions"><button class="btn ghost" data-cancel-scenario="1" type="button">返回当前城市</button></div>' : '');
+  }
+
+  function runSetupHtml(detailsOpen) {
+    var s = G.SCENARIOS.filter(function (x) { return x.id === configuringScenario; })[0];
+    var m = G.runModifiers(pendingRunConfig);
+    var record = loadCampaign()[P.key(s.id, pendingRunConfig)];
+    function option(def, field) {
+      var selected = pendingRunConfig[field] === def.id;
+      return '<button class="setup-option' + (selected ? ' selected' : '') + '" data-config-field="' + field +
+        '" data-config-value="' + def.id + '" aria-pressed="' + selected + '" type="button">' +
+        '<b>' + def.name + '</b><span>' + def.description + '</span></button>';
+    }
+    return '<div class="modal-head"><h2>' + s.icon + ' ' + s.name + ' · 开局配置</h2>' +
+      '<p>选择难度，并装备一个 BUFF 或选择无加成。所有选项已开放。</p></div>' +
+      '<div class="setup-goal"><b>通关要求</b>：' + s.requirements.map(function (r) {
+        return r.label + ' ≥' + r.target;
+      }).join('、') + '</div>' +
+      '<fieldset class="setup-group"><legend>难度</legend><div class="setup-options difficulties">' +
+      G.DIFFICULTIES.map(function (d) { return option(d, 'difficultyId'); }).join('') + '</div></fieldset>' +
+      '<fieldset class="setup-group"><legend>开局 BUFF · 最多一个</legend><div class="setup-options">' +
+      G.BUFFS.map(function (b) { return option(b, 'buffId'); }).join('') + '</div></fieldset>' +
+      '<div class="setup-summary"><b>' + configLabel(pendingRunConfig) + '</b>' +
+      '<span>初始金钱 ' + m.startingMoney + ' · 初始人口 ' + G.START_POP + ' · 每人需求合计 ' + fmtRate(m.occupancyCost) + '</span>' +
+      '<span>' + (record ? '✓ 此配置已通关 · 最佳通关声望 ' + fmt(record.bestRep) : '此配置尚未通关') + '</span></div>' +
+      '<details class="setup-details"' + (detailsOpen ? ' open' : '') + '><summary>查看开局供给和人口需求</summary><table class="setup-table">' +
+      '<thead><tr><th>资源</th><th>基础供给／回合</th><th>人均需求</th><th>P5 人口需求</th></tr></thead><tbody>' +
+      G.RES.map(function (r) { return '<tr><td>' + r.icon + ' ' + r.name + '</td><td>' +
+        (r.base + m.baseSupply[r.key]) + '</td><td>' + fmtRate(m.populationDemand[r.key]) + '</td><td>' +
+        fmtRate(round2(m.populationDemand[r.key] * G.START_POP)) + '</td></tr>'; }).join('') +
+      '</tbody></table><p class="goal-note">人口需求按基础值 × 难度倍率 × BUFF 倍率计算，汇总城市需求时统一保留两位小数。建筑投入与任务占用另行计入。</p></details>' +
+      '<div class="modal-actions"><button class="btn ghost" data-back-scenarios="1" type="button">返回选关</button>' +
+      '<button class="btn primary" data-start-configured="1" type="button">开始本局</button></div>';
   }
 
   function renderCity(S, used) {
@@ -374,7 +406,7 @@
     var note = bpNote(id);
     var net = G.buildingNet(d);
     var netLine = net === null ? '' :
-      '<small class="bc-net" title="满产净产出 = 产出 − 额外消耗 − 劳力×' + G.OCCUPANCY_COST + '；仅用于横向比较，不重复扣实际供需">满产净 ' + fmtNet(net) + ' / 回合</small>';
+      '<small class="bc-net" title="满产净产出 = 产出 − 额外消耗 − 劳力×' + G.runModifiers().occupancyCost + '；仅用于横向比较，不重复扣实际供需">满产净 ' + fmtNet(net) + ' / 回合</small>';
     var reason = st.ok ? '' : '<span class="bc-reason">' + st.reason + '</span>';
     return '<button class="build-card' + (st.ok ? '' : ' is-dis') + '" data-build="' + id + '"' +
       (st.ok ? '' : ' disabled') + ' title="' + (st.ok ? '预览建造 ' + d.name : st.reason) + '" type="button">' +
@@ -568,6 +600,7 @@
   function introHtml() {
     return '<div class="intro">' +
       '<div class="intro-goal">目标：<b>达成本关全部建设要求才通关</b>；30 回合累计声望作为经营成绩保留。</div>' +
+      '<div class="intro-goal">本局配置：' + configLabel(G.getState().runConfig) + '</div>' +
       '<ul>' +
       '<li><b>资源条</b>：总长度 = 需求 + 占用；金色段为任务占用，青色/蓝色段为已覆盖需求，红色斜纹段为供给缺口；满足分改为文字。</li>' +
       '<li><b>资源余量</b>：资源卡大字显示“额外供给 / 缺口”，口径为提供 − 占用 − 需求；负数表示满足需求后仍缺的量。</li>' +
@@ -577,7 +610,7 @@
       '<li><b>高级减产</b>：低阶资源每缺 1 项，高级产出 -25%；缺 2 项 -50%，缺 3 项 -75%，四项全缺停产。部分减产仍按原高级投入计算，停产时才暂停额外投入。</li>' +
       '<li><b>回合压力</b>：T1–6 为 0，T7 起线性增加到 T30 的 −5；不管基础满意度正负都扣，后期越来越难拿声望。</li>' +
       '<li><b>每回合</b> 1 次建造或城镇升级；所有建筑最多占 1 人口，市场/仓库等部分蓝图 0 人口；人口既提供劳力也产生需求。</li>' +
-      '<li><b>净产出</b>：1 劳力会占用 1 人，其八项需求合计 ' + G.OCCUPANCY_COST + '（四项高阶各 1），作为该建筑的负向产出；额外消耗也从产出中扣除。基础生产建筑满产净 ' + fmtNet(G.buildingNet(G.buildingDef('farm'))) + '，蓝图满产净 ' + fmtNet(G.buildingNet(G.buildingDef('wind'))) + '，建造卡会直接标出。净产出只用于横向比较，实际供需仍按产出与人口需求分别计算。</li>' +
+      '<li><b>净产出</b>：1 劳力会占用 1 人，其八项需求合计 ' + fmtRate(G.runModifiers().occupancyCost) + '（含本局难度与 BUFF），作为该建筑的负向产出；额外消耗也从产出中扣除。农场满产净 ' + fmtNet(G.buildingNet(G.buildingDef('farm'))) + '，风电站满产净 ' + fmtNet(G.buildingNet(G.buildingDef('wind'))) + '，建造卡会直接标出。净产出用于横向比较，实际供需不会重复扣一次。</li>' +
       '<li><b>城镇升级</b>：当前人口达到 P6 / P9 / P12 / P15 时，可手动升级城镇；升级消耗本回合建造行动，不花金钱、不占建筑位、不降级。每次升级从 5 张蓝图中选 2 张。</li>' +
       '<li><b>建造预览</b>：点击建筑卡先预览；确认后才扣钱/占劳力。预览列出资源变化、满意度与具体高级减产原因。</li>' +
       '<li><b>任务</b> 开局 5 张，T' + G.REFRESH.join('/T') + ' 各刷新 3 张；接取前供给须大于其他任务占用，0 产出不能接。任务卡会提前显示「接取后预计完成回合」；占用行的“余 X / 缺 X”计入城市需求：接取后供给 − 人口及建筑消耗 − 接取后全部任务占用，仓库减免和高级减产同时生效。城市出现缺口仍可接取，需权衡满意度。完成后二选一：金钱+人口，或金钱+资源供给，选择前不能继续；选择弹窗可隐藏查看资源。</li>' +
@@ -589,6 +622,7 @@
     return '<div class="rules">' +
       '<div class="end-kicker">30 回合 · 建设目标决定通关 · 声望记录经营成绩</div>' +
       '<h2>规则速览</h2>' +
+      '<p><b>本局配置</b>：' + configLabel(G.getState().runConfig) + '。普通采用标准人口需求，困难为八项人口需求 ×1.15；建设筹备初始金钱 +60，粮食援助基础食物供给 +2／回合，节水设施人口用水需求 ×0.9。每局最多装备一个 BUFF，配置在开局后固定。通关成绩按关卡、难度与 BUFF 分别记录。</p>' +
       '<p><b>建设目标</b>：开局选择关卡，要求固定且全程可见。多项资源分别验收，富余资源不能抵消另一项的缺口。</p><ul>' +
       G.SCENARIOS.map(function (s, index) { return '<li><b>第 ' + (index + 1) + ' 关 · ' + s.name + '</b>：' +
         s.requirements.map(function (r) { return r.label + ' ≥' + r.target; }).join('、') + '。</li>'; }).join('') + '</ul>' +
@@ -603,7 +637,7 @@
       '<p><b>资源</b>：卡面显示「当前 → 下回合预测」。下回合预测包含已建建筑、任务占用和下一回合会完成的任务；建造后立即变化。</p>' +
       '<p><b>高级减产</b>：高级建筑（衣服 / 家具 / 药品 / 教育）需要基础资源。食物、原料、电力、水每缺 1 项，高级产出 -25%；缺 2 项 -50%，缺 3 项 -75%，四项全缺停产。部分减产仍按原高级投入计算，停产时才暂停额外基础消耗；资源卡会标「低阶不足·产出 N%」。</p>' +
       '<p><b>劳力</b>：所有建筑最多占 1 人口；市场、仓库等部分蓝图 0 人口。启用建筑会占用人口，已占用 &gt; 人口时不能进入下回合。城市面板按类型用 − / + 调整启用数量，停用会同时停掉供给和额外消耗。</p>' +
-      '<p><b>净产出</b>：把占用人口视为负向产出。1 劳力占用 1 人，八项需求合计 ' + G.OCCUPANCY_COST + '；满产净产出 = 产出总和 − 额外消耗总和 − 劳力 × ' + G.OCCUPANCY_COST + '。基础生产建筑 ' + fmtNet(G.buildingNet(G.buildingDef('farm'))) + '，蓝图 ' + fmtNet(G.buildingNet(G.buildingDef('wind'))) + '；实际高级产出还会受低阶短缺减产。</p>' +
+      '<p><b>净产出</b>：把占用人口视为负向产出。本局 1 人八项需求合计 ' + fmtRate(G.runModifiers().occupancyCost) + '；满产净产出 = 产出总和 − 额外消耗总和 − 劳力 × ' + fmtRate(G.runModifiers().occupancyCost) + '。农场 ' + fmtNet(G.buildingNet(G.buildingDef('farm'))) + '，风电站 ' + fmtNet(G.buildingNet(G.buildingDef('wind'))) + '；实际高级产出还会受低阶短缺减产。</p>' +
       '<p><b>建造预览</b>：点击建筑卡先打开预览，确认后才真正建造。预览显示金钱/劳力/满意度变化、资源供需变化，以及高级建筑当前和建造后的具体减产原因（哪项低阶资源、可用/需求/缺口）。</p>' +
       '<p><b>城镇升级</b>：当前人口达到 P6 / P9 / P12 / P15 时可手动升级；每级消耗本回合建造行动，不花金钱、不占 24 座建筑上限、不降级。每次升级弹出 5 选 2 蓝图。声望不再给蓝图。</p>' +
       '<p><b>任务</b>：开局 5 张，T' + G.REFRESH.join('/T') + ' 各刷新 3 张。任务栏不限张数；限时任务过期消失；恶性任务不接也占出生负担 A。接取前看「接取后预计满意度」、变化量和「接取后预计完成回合」；占用行的“余 X / 缺 X”= 接取后供给 − 城市需求（人口及建筑消耗）− 接取后全部任务占用。仓库减免、高级减产和恶性 A→B 替换均计入；进行中显示当前余额，自身占用只算一次。完成回合已经计入同资源超额减速，预计超过 T30 会提前标红。接取条件仍为当前供给 &gt; 其他任务占用，0 产出不能接；城市余额为负时仍可接取。完成后在「金钱+人口」和「金钱+资源供给」中二选一，选择前不能继续。</p>' +
@@ -692,7 +726,7 @@
     var net = G.buildingNet(d);
     var netTxt = net === null ? '' :
       '<div class="bp-net">满产净产出 <b>' + fmtNet(net) + '</b> / 回合' +
-      '<span>已扣除额外消耗与 1 人占用 ' + G.OCCUPANCY_COST + ' 点（' + G.RES.map(function (r) { return r.name + ' ' + r.demand; }).join('、') + '）；这是横向比较口径，实际供需仍按产出与人口需求分别计算，不会重复扣一次。</span></div>';
+      '<span>已扣除额外消耗与 1 人占用 ' + fmtRate(G.runModifiers().occupancyCost) + ' 点（' + G.RES.map(function (r) { return r.name + ' ' + fmtRate(G.runModifiers().populationDemand[r.key]); }).join('、') + '）；已计入本局难度与 BUFF，实际供需不会重复扣一次。</span></div>';
     var afterGoal = G.goalStatus(a);
     return '<div class="modal-head"><h2>建造预览 · ' + d.icon + ' ' + d.name + '</h2>' +
       '<p>确认后立即建造，本回合不能再建。花费 ' + d.cost + ' 金 · 劳力 ' + d.labor + ' · 建成后不可撤销。</p></div>' +
@@ -799,9 +833,10 @@
       var isBest = f.rep >= best;
       card.innerHTML = '<div class="end">' +
         '<div class="end-kicker">' + (f.goal ? esc(f.goal.name) + ' · 建设验收' : '自由经营 · 30 回合结束') + '</div>' +
+        '<div class="end-config">' + configLabel(f.runConfig) + '</div>' +
         (f.goal ? '<h2 class="end-result' + (f.cleared ? ' cleared' : '') + '">' + (f.cleared ? '建设达标 · 通关' : '建设目标未完成 · 未通关') + '</h2>' : '') +
         '<div class="end-rep">' + f.rep + '<small>声望</small></div>' +
-        '<div class="end-sub">经营成绩' + (isBest ? ' · 本机最佳声望' : '') + '</div>' +
+        '<div class="end-sub">经营成绩' + (isBest ? ' · 全部配置最高声望' : '') + '</div>' +
         (f.goal ? '<div class="goal-conditions end-goals">' + f.goal.conditions.map(goalConditionHtml).join('') + '</div>' : '') +
         '<div class="end-grid">' +
         '<div class="end-stat"><b>Lv.' + (f.level || 0) + '</b><span>城镇</span></div>' +
@@ -810,7 +845,9 @@
         '<div class="end-stat"><b>' + f.tasksDone + '</b><span>完成任务</span></div>' +
         '<div class="end-stat"><b>' + fmt(f.money) + '</b><span>剩余金钱</span></div>' +
         '</div>' +
-        '<div class="end-best">本机最佳最终声望：' + best + ' · 种子 ' + S.seed + '</div>' +
+        (S.scenarioId ? '<div class="end-best">此配置最佳通关声望：' +
+          (loadCampaign()[P.key(S.scenarioId, S.runConfig)] ? fmt(loadCampaign()[P.key(S.scenarioId, S.runConfig)].bestRep) : '尚未通关') + '</div>' : '') +
+        '<div class="end-best">本机最高声望（全部配置）：' + best + ' · 种子 ' + S.seed + '</div>' +
         '<button class="btn primary big" data-restart="1" type="button">返回选关</button>' +
         '</div>';
       modal.classList.remove('hidden');
@@ -930,8 +967,9 @@
     render();
   }
 
-  function newGame(seed, scenarioId) {
+  function newGame(seed, scenarioId, config) {
     selectingScenario = false;
+    configuringScenario = null;
     pendingSeed = undefined;
     showHelp = false;
     buildPreviewId = null;
@@ -945,15 +983,24 @@
         btns[i].classList.toggle('on', btns[i].getAttribute('data-filter') === 'all');
       }
     } catch (e) {}
-    G.newGame(seed, scenarioId);
+    G.newGame(seed, scenarioId, config);
     render();
     $('modalCard').scrollTop = 0;
   }
 
   function openScenarioSelection(seed) {
     selectingScenario = true;
+    configuringScenario = null;
     pendingSeed = seed;
     modalHidden = false;
+    render();
+    $('modalCard').scrollTop = 0;
+  }
+
+  function openRunSetup(id, config) {
+    configuringScenario = id;
+    selectingScenario = false;
+    pendingRunConfig = G.normalizeRunConfig(config);
     render();
     $('modalCard').scrollTop = 0;
   }
@@ -1000,9 +1047,20 @@
     });
     $('modalCard').addEventListener('click', function (e) {
       var scenario = e.target.closest('[data-scenario]');
-      if (scenario) { newGame(pendingSeed, scenario.getAttribute('data-scenario')); return; }
+      if (scenario) { openRunSetup(scenario.getAttribute('data-scenario')); return; }
+      var configOption = e.target.closest('[data-config-field]');
+      if (configOption) {
+        var field = configOption.getAttribute('data-config-field');
+        var value = configOption.getAttribute('data-config-value');
+        pendingRunConfig[field] = value;
+        render();
+        $('modalCard').querySelector('[data-config-field="' + field + '"][data-config-value="' + value + '"]').focus();
+        return;
+      }
+      if (e.target.closest('[data-start-configured]')) { newGame(pendingSeed, configuringScenario, pendingRunConfig); return; }
+      if (e.target.closest('[data-back-scenarios]')) { openScenarioSelection(pendingSeed); return; }
       var cancelScenario = e.target.closest('[data-cancel-scenario]');
-      if (cancelScenario) { selectingScenario = false; pendingSeed = undefined; render(); return; }
+      if (cancelScenario) { selectingScenario = false; configuringScenario = null; pendingSeed = undefined; render(); return; }
       var hideView = e.target.closest('[data-hide-modal]');
       if (hideView) { modalHidden = true; render(); return; }
       var helpClose = e.target.closest('[data-close-help]');
@@ -1023,12 +1081,14 @@
 
     var seed = null;
     var scenarioId = null;
+    var requestedConfig = G.normalizeRunConfig();
     try {
       var params = new URLSearchParams(window.location.search);
       var q = params.get('seed');
       if (q !== null && q !== '' && isFinite(Number(q))) seed = Number(q);
       var requested = params.get('level');
       if (G.SCENARIOS.some(function (s) { return s.id === requested; })) scenarioId = requested;
+      requestedConfig = G.normalizeRunConfig({ difficultyId: params.get('difficulty') || 'normal', buffId: params.get('buff') || 'none' });
     } catch (e) {}
 
     if (seed === null && scenarioId === null) {
@@ -1044,7 +1104,7 @@
         clearSave();
       }
     }
-    if (scenarioId) newGame(seed, scenarioId);
+    if (scenarioId) { pendingSeed = seed; openRunSetup(scenarioId, requestedConfig); }
     else openScenarioSelection(seed);
   }
 

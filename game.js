@@ -1,5 +1,5 @@
 /*
- * 城建设计局 · v3.11.0 引擎
+ * 城建设计局 · v3.12.0 引擎
  * 纯逻辑、无 DOM，可在 Node 里直接 require 测试。
  *
  * 核心：30 回合 / 每回合 1 次建造或城镇升级 / 8 资源 / 人口常驻占用劳力 /
@@ -26,6 +26,47 @@
   var NODES = [];
   var REFRESH = [6, 11, 16, 21, 26];
   var START_TASKS = ['reclaim', 'waterworks', 'mining', 'relief', 'prospect'];
+
+  var DIFFICULTIES = [
+    { id: 'normal', name: '普通', description: '采用标准人口需求。', populationDemandMultiplier: 1 },
+    { id: 'hard', name: '困难', description: '人口的八项资源需求 ×1.15。', populationDemandMultiplier: 1.15 }
+  ];
+  var BUFFS = [
+    { id: 'none', name: '无加成', description: '按标准城市开局。', effects: {} },
+    { id: 'preparation', name: '建设筹备', description: '初始金钱 +60。', effects: { startingMoney: 60 } },
+    { id: 'food_aid', name: '粮食援助', description: '基础食物供给 +2／回合。', effects: { baseSupply: { food: 2 } } },
+    { id: 'water_saving', name: '节水设施', description: '人口用水需求 ×0.9。', effects: { populationDemandMultiplier: { water: 0.9 } } }
+  ];
+  function findDefinition(defs, id) {
+    for (var i = 0; i < defs.length; i++) if (defs[i].id === id) return defs[i];
+    return null;
+  }
+  function normalizeRunConfig(config) {
+    var c = config == null ? {} : config;
+    if (typeof c !== 'object' || Array.isArray(c) || Object.keys(c).some(function (key) {
+      return key !== 'difficultyId' && key !== 'buffId';
+    })) throw new Error('开局配置无效');
+    var difficultyId = c.difficultyId === undefined ? 'normal' : c.difficultyId;
+    var buffId = c.buffId === undefined ? 'none' : c.buffId;
+    if (!findDefinition(DIFFICULTIES, difficultyId)) throw new Error('未知难度');
+    if (!findDefinition(BUFFS, buffId)) throw new Error('未知 BUFF');
+    return { difficultyId: difficultyId, buffId: buffId };
+  }
+  function runModifiers(config) {
+    var c = normalizeRunConfig(config === undefined ? state && state.runConfig : config);
+    var difficulty = findDefinition(DIFFICULTIES, c.difficultyId);
+    var effects = findDefinition(BUFFS, c.buffId).effects;
+    var populationDemand = {}, baseSupply = {}, cost = 0;
+    RES.forEach(function (r) {
+      // Keep full rate precision; round the final city demand once, after population multiplication.
+      var multiplier = difficulty.populationDemandMultiplier * ((effects.populationDemandMultiplier || {})[r.key] || 1);
+      populationDemand[r.key] = Number((r.demand * multiplier).toFixed(8));
+      baseSupply[r.key] = (effects.baseSupply || {})[r.key] || 0;
+      cost += populationDemand[r.key];
+    });
+    return { config: c, startingMoney: START_MONEY + (effects.startingMoney || 0),
+      populationDemand: populationDemand, baseSupply: baseSupply, occupancyCost: Number(cost.toFixed(8)) };
+  }
 
   var SCENARIOS = [
     { id: 'town', name: '安居小镇', icon: '🏘', tag: '教学',
@@ -127,13 +168,13 @@
   /* 一人八项需求总和，用于把“占用人口”折算成负向产出。 */
   var OCCUPANCY_COST = round2(RES.reduce(function (sum, r) { return sum + r.demand; }, 0));
 
-  function buildingNet(def) {
+  function buildingNet(def, config) {
     if (!def || !def.out || !Object.keys(def.out).length) return null;
     var gross = 0;
     var extra = 0;
     Object.keys(def.out).forEach(function (k) { gross += def.out[k]; });
     Object.keys(def.extra || {}).forEach(function (k) { extra += def.extra[k]; });
-    return round2(gross - extra - (def.labor || 0) * OCCUPANCY_COST);
+    return round2(gross - extra - (def.labor || 0) * runModifiers(config).occupancyCost);
   }
 
   function isAdvancedBuilding(def) {
@@ -403,11 +444,12 @@
   }
 
   function compute() {
+    var modifiers = runModifiers();
     var supply = emptyRes();
     var demand = emptyRes();
     var extra = emptyRes();
 
-    RES.forEach(function (r) { supply[r.key] = r.base; });
+    RES.forEach(function (r) { supply[r.key] = r.base + modifiers.baseSupply[r.key]; });
     RES.forEach(function (r) {
       supply[r.key] = round2(supply[r.key] + (state.taskSupply[r.key] || 0));
     });
@@ -456,7 +498,7 @@
           if (r.group !== 'basic') return;
           var advancedBasic = round2((advancedOut[r.key] || 0) * advancedMultiplier);
           var available = round2(supply[r.key] + advancedBasic - (occ[r.key] || 0));
-          var need = round2(state.pop * r.demand + (extra[r.key] || 0));
+          var need = round2(state.pop * modifiers.populationDemand[r.key] + (extra[r.key] || 0));
           if (available < need) {
             shortCount += 1;
             shortReasons.push({
@@ -465,7 +507,7 @@
               available: available,
               need: need,
               gap: round2(need - available),
-              popNeed: round2(state.pop * r.demand),
+              popNeed: round2(state.pop * modifiers.populationDemand[r.key]),
               extraNeed: round2(extra[r.key] || 0)
             });
           }
@@ -493,7 +535,7 @@
     }
 
     RES.forEach(function (r) {
-      demand[r.key] = round2(state.pop * r.demand + (extra[r.key] || 0));
+      demand[r.key] = round2(state.pop * modifiers.populationDemand[r.key] + (extra[r.key] || 0));
     });
 
     var per = RES.map(function (r) {
@@ -522,6 +564,7 @@
 
     return {
       supply: supply, demand: demand, extra: extra, occ: occ, occDiscount: discount, per: per,
+      populationDemand: modifiers.populationDemand, occupancyCost: modifiers.occupancyCost,
       sum: sum, penalty: penalty, over: over,
       baseSat: baseSat, turnPressure: turnPressure,
       sat: sat, repGain: repGain, popLoss: popLoss, market: market,
@@ -1019,7 +1062,7 @@
         buildings: state.buildings.length, tasksDone: state.stats.tasksDone,
         money: state.money, built: state.stats.built, popLost: state.stats.popLost,
         level: state.townLevel, scenarioId: state.scenarioId || null,
-        cleared: goal ? goal.cleared : null, goal: goal
+        cleared: goal ? goal.cleared : null, goal: goal, runConfig: normalizeRunConfig(state.runConfig)
       };
       log((goal ? goal.name + '：' + (goal.cleared ? '通关' : '未通关') + '。' : '自由经营结束。') +
         '最终声望 ' + state.rep + '。', 'end');
@@ -1041,9 +1084,11 @@
 
   /* ---------------- new game ---------------- */
 
-  function newGame(seed, scenarioId) {
+  function newGame(seed, scenarioId, config) {
     var selected = scenarioId === undefined ? 'town' : scenarioId;
     if (!SCENARIO_BY_ID[selected]) throw new Error('未知关卡：' + selected);
+    var runConfig = normalizeRunConfig(config);
+    var modifiers = runModifiers(runConfig);
     var s = (seed === undefined || seed === null || seed === '') ? Math.floor(Math.random() * 1000000007) : Number(seed);
     if (!isFinite(s)) s = 1;
     s = s >>> 0;
@@ -1051,9 +1096,10 @@
       version: SAVE_VERSION,
       seed: s,
       scenarioId: selected,
+      runConfig: runConfig,
       rngState: s,
       turn: 1,
-      money: START_MONEY,
+      money: modifiers.startingMoney,
       pop: START_POP,
       rep: 0,
       sat: 0,
@@ -1076,7 +1122,9 @@
     };
     START_TASKS.forEach(function (id) { addTask(id, 1); });
     startTurn();
-    log(SCENARIO_BY_ID[selected].name + '开局：P5、300 金。先补基础供给，T30 验收建设目标。', 'start');
+    log(SCENARIO_BY_ID[selected].name + '开局：P5、' + modifiers.startingMoney + ' 金。' +
+      findDefinition(DIFFICULTIES, runConfig.difficultyId).name + ' · ' + findDefinition(BUFFS, runConfig.buffId).name +
+      '；T30 验收建设目标。', 'start');
     openDraw('opening', { count: 1, options: 3 });
     return state;
   }
@@ -1109,7 +1157,16 @@
     if (s.scenarioId && s.final && s.final.scenarioId !== s.scenarioId) {
       return { ok: false, error: '存档关卡与结算不一致' };
     }
+    var runConfig;
+    try {
+      runConfig = normalizeRunConfig(s.runConfig);
+      if (s.final && s.final.runConfig != null && JSON.stringify(normalizeRunConfig(s.final.runConfig)) !== JSON.stringify(runConfig)) {
+        return { ok: false, error: '存档开局配置与结算不一致' };
+      }
+    } catch (e) { return { ok: false, error: e.message }; }
     state = s;
+    state.runConfig = runConfig;
+    if (state.final) state.final.runConfig = normalizeRunConfig(runConfig);
     if (state.scenarioId == null) state.scenarioId = null;
     if (!state.scenarioId && state.final) {
       state.final.scenarioId = null;
@@ -1135,6 +1192,10 @@
     SCENARIOS: JSON.parse(JSON.stringify(SCENARIOS)),
     evaluateScenario: evaluateScenario,
     goalStatus: goalStatus,
+    DIFFICULTIES: JSON.parse(JSON.stringify(DIFFICULTIES)),
+    BUFFS: JSON.parse(JSON.stringify(BUFFS)),
+    normalizeRunConfig: normalizeRunConfig,
+    runModifiers: runModifiers,
     forecastTask: forecastTask,
     SAVE_VERSION: SAVE_VERSION,
     build: build,
