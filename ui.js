@@ -1,4 +1,4 @@
-/* 城建设计局 · v3.10.0 界面 */
+/* 城建设计局 · v3.11.0 界面 */
 (function () {
   'use strict';
 
@@ -316,11 +316,11 @@
   function scenarioSelectionHtml() {
     var records = loadCampaign();
     return '<div class="modal-head"><h2>选择建设关卡</h2>' +
-      '<p>每关 30 回合，达成全部建设目标才算通关。三关均已开放，可选择不同建设路线。</p></div>' +
-      '<div class="scenario-grid">' + G.SCENARIOS.map(function (s) {
+      '<p>每关 30 回合，达成全部建设目标才算通关。' + G.SCENARIOS.length + ' 关均已开放，后 3 关挑战产业配套、民生品质与综合扩张。</p></div>' +
+      '<div class="scenario-grid">' + G.SCENARIOS.map(function (s, index) {
         var record = records[s.id];
         return '<button class="scenario-card" data-scenario="' + s.id + '" type="button">' +
-          '<span class="scenario-tag">' + s.tag + '</span><span class="scenario-icon">' + s.icon + '</span>' +
+          '<span class="scenario-tag">第 ' + (index + 1) + ' 关 · ' + s.tag + '</span><span class="scenario-icon">' + s.icon + '</span>' +
           '<h3>' + s.name + '</h3><p>' + s.description + '</p>' +
           '<ul>' + s.requirements.map(function (r) { return '<li>' + r.label + ' ≥ ' + r.target + '</li>'; }).join('') + '</ul>' +
           '<span class="scenario-record' + (record ? ' cleared' : '') + '">' +
@@ -589,7 +589,9 @@
     return '<div class="rules">' +
       '<div class="end-kicker">30 回合 · 建设目标决定通关 · 声望记录经营成绩</div>' +
       '<h2>规则速览</h2>' +
-      '<p><b>建设目标</b>：开局选择关卡，要求固定且全程可见。安居小镇：人口 ≥9、满意度 ≥20；农业基地：人口 ≥15、食物净余量 ≥18、满意度 ≥35；学府之城：人口 ≥12、教育净余量 ≥4、满意度 ≥50。</p>' +
+      '<p><b>建设目标</b>：开局选择关卡，要求固定且全程可见。多项资源分别验收，富余资源不能抵消另一项的缺口。</p><ul>' +
+      G.SCENARIOS.map(function (s, index) { return '<li><b>第 ' + (index + 1) + ' 关 · ' + s.name + '</b>：' +
+        s.requirements.map(function (r) { return r.label + ' ≥' + r.target; }).join('、') + '。</li>'; }).join('') + '</ul>' +
       '<p><b>通关验收</b>：T30 先处理全部奖励，并完成建设、启停建筑与任务操作，再点击“验收本关”。按此时实际供需判断，全部条件符合才通关。提前达标仍需保持到终局；未通关也记录声望，只有通关才写入本机关卡通关记录。旧存档作为自由经营保留。</p>' +
       '<p><b>满意度</b>：八项资源各 0–15 分，减去人口惩罚、赤字 ' + G.DEFICIT + ' 和回合压力。&lt;0 掉人口；0≤满意度&lt;20 不加声望；20≤满意度&lt;35 每回合 +1，35≤满意度&lt;50 +2，50≤满意度&lt;65 +3，65≤满意度&lt;75 +4，≥75 +5。</p>' +
       '<p><b>人口惩罚</b>：分段累加，1–5 人每人扣 1，6–15 人每人扣 0.5，16–25 人每人扣 1，26 人起每人扣 1.5。例如 P5 扣 5、P11 扣 8、P15 扣 10、P20 扣 15、P25 扣 20。</p>' +
@@ -945,6 +947,7 @@
     } catch (e) {}
     G.newGame(seed, scenarioId);
     render();
+    $('modalCard').scrollTop = 0;
   }
 
   function openScenarioSelection(seed) {
@@ -952,6 +955,7 @@
     pendingSeed = seed;
     modalHidden = false;
     render();
+    $('modalCard').scrollTop = 0;
   }
 
   function restart() {

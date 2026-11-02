@@ -1,5 +1,5 @@
 /*
- * 城建设计局 · v3.10.0 引擎
+ * 城建设计局 · v3.11.0 引擎
  * 纯逻辑、无 DOM，可在 Node 里直接 require 测试。
  *
  * 核心：30 回合 / 每回合 1 次建造或城镇升级 / 8 资源 / 人口常驻占用劳力 /
@@ -47,6 +47,31 @@
         { key: 'pop', label: '人口', target: 12 },
         { key: 'balance', resource: 'education', label: '教育净余量', target: 4 },
         { key: 'sat', label: '满意度', target: 50 }
+      ] },
+    { id: 'industry', name: '工业重镇', icon: '🏭', tag: '产业配套',
+      description: '平衡工业投入，在满足城市与任务需求后同时留足原料和电力。',
+      requirements: [
+        { key: 'pop', label: '人口', target: 15 },
+        { key: 'balance', resource: 'material', label: '原料净余量', target: 12 },
+        { key: 'balance', resource: 'power', label: '电力净余量', target: 12 },
+        { key: 'sat', label: '满意度', target: 50 }
+      ] },
+    { id: 'health', name: '康养之城', icon: '💊', tag: '民生品质',
+      description: '保障制药所需的基础资源，用充足药品与完善民生提高生活品质。',
+      requirements: [
+        { key: 'pop', label: '人口', target: 12 },
+        { key: 'balance', resource: 'medicine', label: '药品净余量', target: 4 },
+        { key: 'sat', label: '满意度', target: 65 }
+      ] },
+    { id: 'metropolis', name: '繁荣都会', icon: '🌆', tag: '综合建设',
+      description: '接纳更多居民，兼顾生活品质，让四项基础资源全部收支平衡。',
+      requirements: [
+        { key: 'pop', label: '人口', target: 20 },
+        { key: 'sat', label: '满意度', target: 65 },
+        { key: 'balance', resource: 'food', label: '食物净余量', target: 0 },
+        { key: 'balance', resource: 'material', label: '原料净余量', target: 0 },
+        { key: 'balance', resource: 'power', label: '电力净余量', target: 0 },
+        { key: 'balance', resource: 'water', label: '水净余量', target: 0 }
       ] }
   ];
   var SCENARIO_BY_ID = Object.create(null);

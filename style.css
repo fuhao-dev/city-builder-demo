@@ -104,14 +104,14 @@ body {
 .goal-gap { margin-left: auto; font-size: 9px; color: var(--muted); white-space: nowrap; }
 .goal-note { font-size: 10px; line-height: 1.6; color: var(--muted); margin: 8px 0 0; }
 .scenario-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-.scenario-card { display: flex; flex-direction: column; align-items: stretch; position: relative; text-align: left; font: inherit; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 17px; cursor: pointer; }
+.scenario-card { display: flex; flex-direction: column; align-items: stretch; position: relative; text-align: left; font: inherit; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; cursor: pointer; }
 .scenario-card:hover, .scenario-card:focus-visible { border-color: var(--gold); outline: 2px solid rgba(245, 194, 107, .25); outline-offset: 2px; }
-.scenario-tag { font-size: 10px; color: var(--gold); }
-.scenario-icon { font-size: 27px; margin: 15px 0 7px; }
-.scenario-card h3 { font-size: 17px; margin: 0 0 10px; }
-.scenario-card p { font-size: 11px; line-height: 1.7; color: var(--muted); margin: 0 0 12px; }
-.scenario-card ul { font-size: 11px; line-height: 1.9; padding-left: 17px; margin: auto 0 15px; }
-.scenario-record { font-size: 10px; color: var(--muted); margin-bottom: 12px; }
+.scenario-tag { font-size: 10px; color: var(--gold); padding-right: 30px; }
+.scenario-icon { position: absolute; top: 14px; right: 14px; font-size: 24px; }
+.scenario-card h3 { font-size: 17px; margin: 12px 30px 8px 0; }
+.scenario-card p { font-size: 11px; line-height: 1.6; color: var(--muted); margin: 0 0 8px; }
+.scenario-card ul { font-size: 11px; line-height: 1.7; padding-left: 17px; margin: auto 0 10px; }
+.scenario-record { font-size: 10px; color: var(--muted); margin-bottom: 9px; }
 .scenario-card .pick-btn { text-align: center; }
 .opening-goals, .end-goals { margin-bottom: 14px; }
 .end-result { margin: 12px 0; color: var(--gold); font-size: 21px; }
@@ -455,7 +455,6 @@ body {
 @media (max-width: 900px) {
   .scenario-grid { grid-template-columns: 1fr; }
   .scenario-card { padding: 14px; }
-  .scenario-icon { margin: 8px 0; }
   .goal-conditions { grid-template-columns: 1fr; }
   .goal-heading { align-items: flex-start; }
   .layout { grid-template-columns: 1fr; padding: 10px 10px 94px; }
