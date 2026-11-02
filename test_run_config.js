@@ -7,23 +7,23 @@ const eq=(a,b,message)=>{assert.deepEqual(a,b,message);passed++;};
 const ok=(value,message)=>{assert(value,message);passed++;};
 const snapshot=()=>JSON.stringify(G.exportState());
 const round=n=>Math.round(n*100)/100;
-const normal={difficultyId:'normal',buffId:'none'};
+const normal={difficultyId:'normal',buffIds:[]};
 function ready(config,scenario='town') {
   const s=G.newGame(15,scenario,config);
   G.chooseBlueprint(s.pendingDraw.options[0]);
   return s;
 }
 eq(G.DIFFICULTIES.map(x=>x.id),['normal','hard'],'two difficulties');
-eq(G.BUFFS.map(x=>x.id),['none','preparation','food_aid','water_saving'],'three buffs and no-buff option');
+eq(G.BUFFS.map(x=>x.id),['none','preparation','food_aid','water_saving','settlers','blueprint_pack'],'base and growth buffs');
 eq(G.normalizeRunConfig(),normal,'standard default');
 eq(G.runModifiers(normal).occupancyCost,6.5,'baseline worker cost');
 eq(G.runModifiers({difficultyId:'hard'}).occupancyCost,7.475,'hard worker cost retains precision');
 eq(G.runModifiers({buffId:'water_saving'}).occupancyCost,6.45,'water buff updates worker cost');
 eq(G.runModifiers({difficultyId:'hard',buffId:'water_saving'}).occupancyCost,7.4175,'multiplicative demand modifiers');
 
-for(const d of G.DIFFICULTIES)for(const b of G.BUFFS) {
+for(const d of G.DIFFICULTIES)for(const b of G.BUFFS.filter(b=>b.unlockRep===0)) {
   const config={difficultyId:d.id,buffId:b.id},s=ready(config),c=G.compute();
-  eq(s.runConfig,config,'run stores chosen ids');
+  eq(s.runConfig,G.normalizeRunConfig(config),'run stores canonical chosen ids');
   eq(s.money,b.id==='preparation'?360:300,'starting money applies once');
   eq(c.supply.food,b.id==='food_aid'?5:3,'food aid modifies recurring base supply');
   for(const r of G.RES) {
@@ -39,13 +39,13 @@ for(const d of G.DIFFICULTIES)for(const b of G.BUFFS) {
   const money=s.money,save=G.exportState();
   ok(G.importState(save).ok,'configured run restores');
   eq(G.getState().money,money,'import never grants starting money again');
-  eq(G.getState().runConfig,config,'config survives save');
+  eq(G.getState().runConfig,G.normalizeRunConfig(config),'config survives save');
 }
 
 const input={difficultyId:'hard',buffId:'water_saving'};
 const precision=ready(input);
 input.buffId='food_aid';
-eq(precision.runConfig.buffId,'water_saving','caller cannot change chosen configuration through original argument');
+eq(precision.runConfig.buffIds,['water_saving'],'caller cannot change chosen configuration through original argument');
 precision.pop=9;
 eq(G.compute().populationDemand.water,.5175,'population rate is not rounded early');
 eq(G.compute().demand.water,4.66,'nine people consume rounded total, not rounded per-person rate');

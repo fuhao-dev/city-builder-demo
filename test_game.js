@@ -71,7 +71,7 @@ Object.keys(advancedPairs).forEach(function (bpId) {
 });
 
 /* 2. 选蓝图 + 混合建筑池 */
-eq(G.BLUEPRINTS.length, 16, '蓝图池 16 张（10 单产 + 6 混合）');
+eq(G.BLUEPRINTS.length, 19, '蓝图总池 19 张（原有 16 + 成长 3）');
 eq(s.pendingDraw.options.length, 3, '开局 3 张候选');
 eq(s.pendingDraw.count, 1, '开局选 1 张');
 eq(s.pendingDraw.source, 'opening', '开局来源标记');
