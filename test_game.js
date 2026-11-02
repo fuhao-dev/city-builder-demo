@@ -1,4 +1,4 @@
-/* 局内 v3.9.1 引擎测试：起手 / 净产出 / 城镇 / 混合蓝图 / 停用 / 任务 / 限时 / 恶性 / 回合压力 / 30 回合 */
+/* 局内 v3.9.2 引擎测试：起手 / 净产出 / 城镇 / 混合蓝图 / 停用 / 任务 / 限时 / 恶性 / 回合压力 / 30 回合 */
 const G = require('./game.js');
 
 let passed = 0;
@@ -462,6 +462,89 @@ eq(G.taskProgressStep('ov-mining'), 0.5, '超额 3+ 时每回合只推进 0.5');
 G.endTurn(); // T7
 eq(G.getState().active.every(t => t.progress === 0.5), true, '两个任务都只推进 0.5');
 eq(G.getState().active.every(t => t.progress < 1), true, '没有任务在 T7 完成');
+
+/* 12.7.1 小数超额不能反向加速，预测倍率与实际推进一致 */
+for (const [over, step] of [[0, 1], [0.01, 0.8], [1.99, 0.8], [2, 0.6], [2.4, 0.6], [2.99, 0.6], [3, 0.5], [3.01, 0.5]]) {
+  const fractional = G.newGame(1);
+  G.chooseBlueprint(fractional.pendingDraw.options[0]);
+  fractional.board = [];
+  fractional.active = [
+    { uid: 'fraction-tailor', defId: 'tailor', progress: 0 },
+    { uid: 'fraction-blackmarket', defId: 'blackmarket', progress: 0, aReleased: true }
+  ];
+  fractional.taskSupply.clothes = 4 - over;
+  near(G.taskProgressStep('fraction-tailor'), step, '超额 ' + over + ' 的进度倍率');
+  ok(G.endTurn().ok, '小数超额场景可以结算');
+  near(fractional.active.find(t => t.uid === 'fraction-tailor').progress, step, '超额 ' + over + ' 的实际推进');
+}
+
+/* 12.7.2 仓库下接取门槛也按减免后的其他任务占用计算 */
+const warehouseGate = G.newGame(15);
+ok(G.chooseBlueprint('warehouse').ok, '种子 15 可选仓库开局');
+ok(G.build('warehouse').ok, 'T1 建仓库');
+G.endTurn(); G.build('farm');
+G.endTurn(); G.build('mine');
+G.acceptTask(warehouseGate.board.find(t => t.defId === 'prospect').uid);
+G.endTurn(); G.build('well');
+G.endTurn(); G.chooseReward('sup'); G.build('plant');
+G.endTurn();
+const zeroBlackmarket = warehouseGate.board.find(t => t.defId === 'blackmarket');
+ok(!!zeroBlackmarket, '种子 15 T6 刷出黑市');
+eq(G.compute().supply.clothes, 0, '尚无衣服供给');
+eq(G.taskAcceptStatus(zeroBlackmarket.uid).ok, false, '启用仓库也不能在 0 衣服供给时接黑市');
+eq(G.acceptTask(zeroBlackmarket.uid).ok, false, '实际接取同样拦截 0 产出');
+warehouseGate.taskSupply.clothes = 0.8;
+warehouseGate.active = [{ uid: 'other-tailor', defId: 'tailor', progress: 0 }];
+eq(G.taskAcceptStatus(zeroBlackmarket.uid).ok, false, '0.8 供给小于其他任务减免后占用 1.6，不能接取');
+warehouseGate.taskSupply.clothes = 1.6;
+eq(G.taskAcceptStatus(zeroBlackmarket.uid).ok, false, '供给等于其他任务占用时不能接取');
+warehouseGate.taskSupply.clothes = 1.61;
+eq(G.taskAcceptStatus(zeroBlackmarket.uid).ok, true, '供给大于其他任务减免后占用时可接取');
+
+/* 12.7.3 任务资源预览计入城市需求、仓库和已有任务，且不改变真实状态 */
+const balances = G.newGame(1);
+G.chooseBlueprint(balances.pendingDraw.options[0]);
+balances.buildings = [{ uid: 'balance-warehouse', defId: 'warehouse', active: true }];
+balances.taskSupply.water = 9;
+balances.taskSupply.power = 9;
+balances.active = [{ uid: 'balance-waterworks', defId: 'waterworks', progress: 0 }];
+balances.board = [{ uid: 'balance-vaccine', defId: 'vaccine', spawnTurn: 1, progress: 0 }];
+const balancesBefore = JSON.stringify(G.exportState());
+const vaccinePreview = G.taskResourcePreview('balance-vaccine');
+near(vaccinePreview.occ.water, 5.6, '供水 4 与疫苗 3 合计减免后占水 5.6');
+near(vaccinePreview.supply.water - vaccinePreview.demand.water - vaccinePreview.occ.water, 1.9, '水余额 = 10 - 城市需求 2.5 - 任务占用 5.6');
+near(vaccinePreview.supply.power - vaccinePreview.demand.power - vaccinePreview.occ.power, 5.1, '电力余额也计入城市需求');
+eq(JSON.stringify(G.exportState()), balancesBefore, '预览不接取、不改进度、不改变存档');
+const activePreview = G.taskResourcePreview('balance-waterworks');
+near(activePreview.occ.water, 3.2, '进行中任务自身占用只计算一次');
+ok(G.acceptTask('balance-vaccine').ok, '实际接取疫苗');
+eq(JSON.stringify(G.taskResourcePreview('balance-vaccine')), JSON.stringify(vaccinePreview), '接取前预览与接取后实际供需一致');
+eq(G.taskResourcePreview('missing-task'), null, '不存在的任务无资源预览');
+
+balances.active = [];
+balances.taskSupply.clothes = 10;
+balances.board = [{ uid: 'balance-blackmarket', defId: 'blackmarket', spawnTurn: 1, progress: 0, aReleased: false }];
+const malignantPreview = G.taskResourcePreview('balance-blackmarket');
+near(malignantPreview.occ.clothes, 1.6, '恶性 A 替换成 B，并对 B 减免 20%');
+near(malignantPreview.supply.clothes - malignantPreview.demand.clothes - malignantPreview.occ.clothes, 3.4, '黑市余额 = 10 - 城市需求 5 - 折后占用 1.6');
+ok(G.acceptTask('balance-blackmarket').ok, '实际接取黑市');
+eq(JSON.stringify(G.compute()), JSON.stringify(malignantPreview), '恶性任务预览与实际一致');
+ok(G.abandonTask('balance-blackmarket').ok, '放弃黑市');
+near(G.taskResourcePreview('balance-blackmarket').occ.clothes, 1.6, 'A 已释放的恶性任务重新接取仍只算 B');
+
+/* 12.7.4 接取后的城市需求包含建筑投入，供给包含接取引发的高级减产 */
+const reducedPreview = G.newGame(1);
+G.chooseBlueprint(reducedPreview.pendingDraw.options[0]);
+reducedPreview.buildings = ['farm', 'mine', 'plant', 'well', 'clothes'].map(id => ({ uid: 'preview-' + id, defId: id, active: true }));
+reducedPreview.board = [{ uid: 'preview-relief', defId: 'relief', spawnTurn: 1, progress: 0, acceptBy: 3 }];
+eq(G.compute().supply.clothes, 10, '接取前服装厂满产');
+const reduced = G.taskResourcePreview('preview-relief');
+eq(reduced.advancedOutputPct, 75, '救济占用导致食物不足，高级产出降至 75%');
+near(reduced.supply.clothes, 7.5, '资源预览使用接取后的高级供给');
+near(reduced.demand.power, 4.5, '城市电力需求包含人口 2.5 和服装厂投入 2');
+near(reduced.supply.food - reduced.demand.food - reduced.occ.food, -4, '食物余额包含城市需求而不是只扣任务');
+ok(G.acceptTask('preview-relief').ok, '城市有缺口仍沿用原接取规则');
+eq(JSON.stringify(G.compute()), JSON.stringify(reduced), '减产场景预览与实际一致');
 
 /* 12.8 高级资源：低阶不足停产；0 产出任务不能接 */
 const advBad = G.newGame(88);
