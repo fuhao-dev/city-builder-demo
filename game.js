@@ -1,5 +1,5 @@
 /*
- * 城建设计局 · v3.12.0 引擎
+ * 城建设计局 · v3.13.0 引擎
  * 纯逻辑、无 DOM，可在 Node 里直接 require 测试。
  *
  * 核心：30 回合 / 每回合 1 次建造或城镇升级 / 8 资源 / 人口常驻占用劳力 /
@@ -32,11 +32,16 @@
     { id: 'hard', name: '困难', description: '人口的八项资源需求 ×1.15。', populationDemandMultiplier: 1.15 }
   ];
   var BUFFS = [
-    { id: 'none', name: '无加成', description: '按标准城市开局。', effects: {} },
-    { id: 'preparation', name: '建设筹备', description: '初始金钱 +60。', effects: { startingMoney: 60 } },
-    { id: 'food_aid', name: '粮食援助', description: '基础食物供给 +2／回合。', effects: { baseSupply: { food: 2 } } },
-    { id: 'water_saving', name: '节水设施', description: '人口用水需求 ×0.9。', effects: { populationDemandMultiplier: { water: 0.9 } } }
+    { id: 'none', name: '无加成', description: '清空已选 BUFF。', cost: 0, unlockRep: 0, effects: {} },
+    { id: 'preparation', name: '建设筹备', description: '初始金钱 +60。', cost: 1, unlockRep: 0, effects: { startingMoney: 60 } },
+    { id: 'food_aid', name: '粮食援助', description: '基础食物供给 +2／回合。', cost: 2, unlockRep: 0, effects: { baseSupply: { food: 2 } } },
+    { id: 'water_saving', name: '节水设施', description: '人口用水需求 ×0.9。', cost: 1, unlockRep: 0, effects: { populationDemandMultiplier: { water: 0.9 } } },
+    { id: 'settlers', name: '先遣居民', description: '初始人口 +1，同时增加需求；城镇仍需手动升级。', cost: 2, unlockRep: 80, effects: { startingPop: 1 } },
+    { id: 'blueprint_pack', name: '蓝图筹备', description: '开局蓝图改为 5 选 2。', cost: 3, unlockRep: 180, effects: { openingBlueprints: 1 } }
   ];
+  var CAPACITY_LEVELS = [{ rep: 0, capacity: 2 }, { rep: 100, capacity: 3 },
+    { rep: 300, capacity: 4 }, { rep: 600, capacity: 5 }, { rep: 1000, capacity: 6 }];
+  var REROLL_UNLOCK_REP = 120;
   function findDefinition(defs, id) {
     for (var i = 0; i < defs.length; i++) if (defs[i].id === id) return defs[i];
     return null;
@@ -44,27 +49,60 @@
   function normalizeRunConfig(config) {
     var c = config == null ? {} : config;
     if (typeof c !== 'object' || Array.isArray(c) || Object.keys(c).some(function (key) {
-      return key !== 'difficultyId' && key !== 'buffId';
+      return key !== 'difficultyId' && key !== 'buffId' && key !== 'buffIds';
     })) throw new Error('开局配置无效');
     var difficultyId = c.difficultyId === undefined ? 'normal' : c.difficultyId;
-    var buffId = c.buffId === undefined ? 'none' : c.buffId;
     if (!findDefinition(DIFFICULTIES, difficultyId)) throw new Error('未知难度');
-    if (!findDefinition(BUFFS, buffId)) throw new Error('未知 BUFF');
-    return { difficultyId: difficultyId, buffId: buffId };
+    if (c.buffId !== undefined && c.buffIds !== undefined) throw new Error('BUFF 配置不能混用新旧格式');
+    var ids = c.buffIds === undefined ? (c.buffId === undefined || c.buffId === 'none' ? [] : [c.buffId]) : c.buffIds;
+    if (!Array.isArray(ids)) throw new Error('BUFF 组合格式无效');
+    var seen = {};
+    ids.forEach(function (id) {
+      if (!findDefinition(BUFFS, id) || id === 'none') throw new Error('未知 BUFF 或无效组合');
+      if (seen[id]) throw new Error('不能重复携带同一 BUFF');
+      seen[id] = true;
+    });
+    return { difficultyId: difficultyId, buffIds: ids.slice().sort() };
+  }
+  function growthStatus(totalRep) {
+    if (totalRep === undefined) totalRep = 0;
+    if (!Number.isSafeInteger(totalRep) || totalRep < 0) throw new Error('累计声望无效');
+    var capacity = 2;
+    CAPACITY_LEVELS.forEach(function (level) { if (totalRep >= level.rep) capacity = level.capacity; });
+    return { totalRep: totalRep, capacity: capacity,
+      buffIds: BUFFS.filter(function (b) { return b.id !== 'none' && totalRep >= b.unlockRep; }).map(function (b) { return b.id; }),
+      blueprintIds: BLUEPRINTS.filter(function (b) { return totalRep >= (b.unlockRep || 0); }).map(function (b) { return b.id; }),
+      rerolls: totalRep >= REROLL_UNLOCK_REP ? 1 : 0 };
+  }
+  function runConfigStatus(config, totalRep) {
+    try {
+      var c = normalizeRunConfig(config), g = growthStatus(totalRep), cost = 0, locked = [];
+      c.buffIds.forEach(function (id) {
+        var b = findDefinition(BUFFS, id); cost += b.cost;
+        if (g.buffIds.indexOf(id) < 0) locked.push(b.name);
+      });
+      return { ok: !locked.length && cost <= g.capacity, cost: cost, capacity: g.capacity,
+        error: locked.length ? '尚未解锁：' + locked.join('、') : cost > g.capacity ? 'BUFF 消耗超过总额度' : '' };
+    } catch (e) { return { ok: false, error: e.message }; }
   }
   function runModifiers(config) {
     var c = normalizeRunConfig(config === undefined ? state && state.runConfig : config);
     var difficulty = findDefinition(DIFFICULTIES, c.difficultyId);
-    var effects = findDefinition(BUFFS, c.buffId).effects;
-    var populationDemand = {}, baseSupply = {}, cost = 0;
+    var effects = c.buffIds.map(function (id) { return findDefinition(BUFFS, id).effects; });
+    var populationDemand = {}, baseSupply = {}, cost = 0, money = START_MONEY, pop = START_POP, opening = 1;
+    effects.forEach(function (e) { money += e.startingMoney || 0; pop += e.startingPop || 0; opening += e.openingBlueprints || 0; });
     RES.forEach(function (r) {
       // Keep full rate precision; round the final city demand once, after population multiplication.
-      var multiplier = difficulty.populationDemandMultiplier * ((effects.populationDemandMultiplier || {})[r.key] || 1);
+      var multiplier = difficulty.populationDemandMultiplier;
+      baseSupply[r.key] = 0;
+      effects.forEach(function (e) {
+        multiplier *= (e.populationDemandMultiplier || {})[r.key] || 1;
+        baseSupply[r.key] += (e.baseSupply || {})[r.key] || 0;
+      });
       populationDemand[r.key] = Number((r.demand * multiplier).toFixed(8));
-      baseSupply[r.key] = (effects.baseSupply || {})[r.key] || 0;
       cost += populationDemand[r.key];
     });
-    return { config: c, startingMoney: START_MONEY + (effects.startingMoney || 0),
+    return { config: c, startingMoney: money, startingPop: pop, openingBlueprints: opening,
       populationDemand: populationDemand, baseSupply: baseSupply, occupancyCost: Number(cost.toFixed(8)) };
   }
 
@@ -158,7 +196,10 @@
     { id: 'garment',    name: '服装合作社', icon: '👗', cost: 170, labor: 1, max: 1, out: { clothes: 7, material: 7 }, extra: { power: 3, water: 3 } },
     { id: 'medschool',  name: '医教中心', icon: '🏥', cost: 190, labor: 1, max: 1, out: { medicine: 9, education: 9 }, extra: { water: 4, power: 4, material: 2 } },
     { id: 'market',     name: '市场',     icon: '🏪', cost: 90,  labor: 0, max: 1, out: {}, bonus: { sat: 5 } },
-    { id: 'warehouse',  name: '仓库',     icon: '📦', cost: 80,  labor: 0, max: 1, out: {}, bonus: { occDiscount: 0.2 } }
+    { id: 'warehouse',  name: '仓库',     icon: '📦', cost: 80,  labor: 0, max: 1, out: {}, bonus: { occDiscount: 0.2 } },
+    { id: 'supplycamp', name: '补给营地', icon: '⛺', cost: 130, labor: 1, max: 1, out: { food: 4, material: 4 }, unlockRep: 200 },
+    { id: 'purifier', name: '净水站', icon: '🚰', cost: 140, labor: 1, max: 1, out: { water: 10 }, extra: { power: 2 }, unlockRep: 400 },
+    { id: 'library', name: '公共图书馆', icon: '📖', cost: 160, labor: 1, max: 1, out: { education: 10 }, extra: { material: 1, power: 1 }, unlockRep: 650 }
   ];
 
   var ALL_BUILDINGS = BASE_BUILDINGS.concat(BLUEPRINTS);
@@ -625,7 +666,8 @@
 
   function openDraw(source, opts) {
     opts = opts || {};
-    var pool = BLUEPRINTS.filter(function (b) { return state.unlocked.indexOf(b.id) < 0; });
+    var allowed = growthStatus(state.growthRep || 0).blueprintIds;
+    var pool = BLUEPRINTS.filter(function (b) { return allowed.indexOf(b.id) >= 0 && state.unlocked.indexOf(b.id) < 0; });
     if (!pool.length) return false;
     var want = opts.count || 1;
     var optionCount = opts.options || 3;
@@ -638,8 +680,7 @@
       level: opts.level || null,
       opening: source === 'opening'
     };
-    if (source === 'opening') log('开局蓝图：3 选 1', 'draw');
-    else log('城镇升级 Lv.' + opts.level + '：5 选 2', 'draw');
+    log((source === 'opening' ? '开局蓝图' : '城镇升级 Lv.' + opts.level) + '：' + options.length + ' 选 ' + count, 'draw');
     return true;
   }
 
@@ -667,6 +708,30 @@
     if (!state.pendingDraw) return { ok: false, error: '没有待选蓝图' };
     if (state.pendingDraw.count !== 1) return { ok: false, error: '本次需要选择 2 张蓝图' };
     return chooseBlueprints([id]);
+  }
+
+  function blueprintRerollStatus() {
+    if (!state || state.over || !state.pendingDraw) return { ok: false, reason: '当前没有待选蓝图', remaining: 0 };
+    var remaining = state.rerollsRemaining || 0;
+    if (!remaining) return { ok: false, reason: growthStatus(state.growthRep || 0).rerolls ? '本局刷新次数已用完' : '累计声望 120 解锁蓝图刷新', remaining: 0 };
+    var fresh = growthStatus(state.growthRep || 0).blueprintIds.filter(function (id) {
+      return state.unlocked.indexOf(id) < 0 && state.pendingDraw.options.indexOf(id) < 0;
+    });
+    return { ok: fresh.length > 0, reason: fresh.length ? '' : '没有可替换的新蓝图', remaining: remaining };
+  }
+  function rerollBlueprints() {
+    var status = blueprintRerollStatus();
+    if (!status.ok) return { ok: false, error: status.reason };
+    var d = state.pendingDraw;
+    var fresh = growthStatus(state.growthRep || 0).blueprintIds.filter(function (id) {
+      return state.unlocked.indexOf(id) < 0 && d.options.indexOf(id) < 0;
+    });
+    var options = shuffle(fresh).slice(0, d.options.length);
+    if (options.length < d.options.length) options = options.concat(shuffle(d.options).slice(0, d.options.length - options.length));
+    d.options = options;
+    state.rerollsRemaining -= 1;
+    log('刷新蓝图，剩余 ' + state.rerollsRemaining + ' 次', 'draw');
+    return { ok: true, remaining: state.rerollsRemaining };
   }
 
   /* ---------------- town ---------------- */
@@ -949,8 +1014,7 @@
       var guard = 0;
       while (finishTurn === null && guard < 80) {
         if (copy.pendingDraw) {
-          var pick = copy.pendingDraw.options[0];
-          if (!chooseBlueprint(pick).ok) break;
+          if (!chooseBlueprints(copy.pendingDraw.options.slice(0, copy.pendingDraw.count || 1)).ok) break;
         }
         if (copy.turn >= MAX_TURNS) {
           copy.turn += 1;
@@ -1062,7 +1126,8 @@
         buildings: state.buildings.length, tasksDone: state.stats.tasksDone,
         money: state.money, built: state.stats.built, popLost: state.stats.popLost,
         level: state.townLevel, scenarioId: state.scenarioId || null,
-        cleared: goal ? goal.cleared : null, goal: goal, runConfig: normalizeRunConfig(state.runConfig)
+        cleared: goal ? goal.cleared : null, goal: goal, runConfig: normalizeRunConfig(state.runConfig),
+        runId: state.runId, growthRep: state.growthRep
       };
       log((goal ? goal.name + '：' + (goal.cleared ? '通关' : '未通关') + '。' : '自由经营结束。') +
         '最终声望 ' + state.rep + '。', 'end');
@@ -1084,10 +1149,16 @@
 
   /* ---------------- new game ---------------- */
 
-  function newGame(seed, scenarioId, config) {
+  function newRunId() {
+    return 'run-' + (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + '-' + Math.random().toString(36).slice(2));
+  }
+  function newGame(seed, scenarioId, config, growthRep) {
     var selected = scenarioId === undefined ? 'town' : scenarioId;
     if (!SCENARIO_BY_ID[selected]) throw new Error('未知关卡：' + selected);
     var runConfig = normalizeRunConfig(config);
+    var growth = growthStatus(growthRep);
+    var status = runConfigStatus(runConfig, growth.totalRep);
+    if (!status.ok) throw new Error(status.error);
     var modifiers = runModifiers(runConfig);
     var s = (seed === undefined || seed === null || seed === '') ? Math.floor(Math.random() * 1000000007) : Number(seed);
     if (!isFinite(s)) s = 1;
@@ -1097,10 +1168,11 @@
       seed: s,
       scenarioId: selected,
       runConfig: runConfig,
+      runId: newRunId(), growthRep: growth.totalRep, growthEligible: true, rerollsRemaining: growth.rerolls,
       rngState: s,
       turn: 1,
       money: modifiers.startingMoney,
-      pop: START_POP,
+      pop: modifiers.startingPop,
       rep: 0,
       sat: 0,
       buildings: [],
@@ -1122,10 +1194,10 @@
     };
     START_TASKS.forEach(function (id) { addTask(id, 1); });
     startTurn();
-    log(SCENARIO_BY_ID[selected].name + '开局：P5、' + modifiers.startingMoney + ' 金。' +
-      findDefinition(DIFFICULTIES, runConfig.difficultyId).name + ' · ' + findDefinition(BUFFS, runConfig.buffId).name +
+    log(SCENARIO_BY_ID[selected].name + '开局：P' + modifiers.startingPop + '、' + modifiers.startingMoney + ' 金。' +
+      findDefinition(DIFFICULTIES, runConfig.difficultyId).name + ' · ' + (runConfig.buffIds.map(function (id) { return findDefinition(BUFFS, id).name; }).join('＋') || '无加成') +
       '；T30 验收建设目标。', 'start');
-    openDraw('opening', { count: 1, options: 3 });
+    openDraw('opening', { count: modifiers.openingBlueprints, options: modifiers.openingBlueprints > 1 ? 5 : 3 });
     return state;
   }
 
@@ -1157,15 +1229,28 @@
     if (s.scenarioId && s.final && s.final.scenarioId !== s.scenarioId) {
       return { ok: false, error: '存档关卡与结算不一致' };
     }
-    var runConfig;
+    var runConfig, growth;
     try {
+      s = JSON.parse(JSON.stringify(s));
       runConfig = normalizeRunConfig(s.runConfig);
+      growth = growthStatus(s.growthRep);
+      var configStatus = runConfigStatus(runConfig, growth.totalRep);
+      if (!configStatus.ok) return { ok: false, error: configStatus.error };
+      if (s.rerollsRemaining !== undefined && (!Number.isInteger(s.rerollsRemaining) || s.rerollsRemaining < 0 || s.rerollsRemaining > growth.rerolls)) {
+        return { ok: false, error: '蓝图刷新次数无效' };
+      }
       if (s.final && s.final.runConfig != null && JSON.stringify(normalizeRunConfig(s.final.runConfig)) !== JSON.stringify(runConfig)) {
         return { ok: false, error: '存档开局配置与结算不一致' };
       }
+      if (s.final && s.final.growthRep !== undefined && s.final.growthRep !== growth.totalRep) return { ok: false, error: '成长快照与结算不一致' };
+      if (s.runId !== undefined && (typeof s.runId !== 'string' || !/^run-[a-zA-Z0-9-]{8,100}$/.test(s.runId))) return { ok: false, error: '本局标识无效' };
+      if (s.final && s.final.runId !== undefined && s.final.runId !== s.runId) return { ok: false, error: '本局标识与结算不一致' };
     } catch (e) { return { ok: false, error: e.message }; }
     state = s;
     state.runConfig = runConfig;
+    state.growthRep = growth.totalRep;
+    state.rerollsRemaining = s.rerollsRemaining === undefined ? 0 : s.rerollsRemaining;
+    if (!state.runId) { state.runId = newRunId(); state.growthEligible = !state.over; }
     if (state.final) state.final.runConfig = normalizeRunConfig(runConfig);
     if (state.scenarioId == null) state.scenarioId = null;
     if (!state.scenarioId && state.final) {
@@ -1196,6 +1281,12 @@
     BUFFS: JSON.parse(JSON.stringify(BUFFS)),
     normalizeRunConfig: normalizeRunConfig,
     runModifiers: runModifiers,
+    growthStatus: growthStatus,
+    runConfigStatus: runConfigStatus,
+    CAPACITY_LEVELS: JSON.parse(JSON.stringify(CAPACITY_LEVELS)),
+    REROLL_UNLOCK_REP: REROLL_UNLOCK_REP,
+    blueprintRerollStatus: blueprintRerollStatus,
+    rerollBlueprints: rerollBlueprints,
     forecastTask: forecastTask,
     SAVE_VERSION: SAVE_VERSION,
     build: build,

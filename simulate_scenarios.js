@@ -10,7 +10,7 @@ const profiles = {
 const selected = {town:'balanced',agriculture:'balanced',education:'quality',
   industry:'balanced',health:'focused',metropolis:'quality'};
 const baseOrder = ['medschool','geothermal','recycling','warehouse','greenhouse','market','herb',
-  'garment','hydrofarm','deepwell','wind','ranch','pharm2','workshop','academy','textile'];
+  'garment','hydrofarm','deepwell','wind','ranch','pharm2','workshop','academy','textile','supplycamp','purifier','library'];
 const openingOrder = ['greenhouse','hydrofarm','geothermal','recycling','ranch','deepwell','wind',
   'medschool','warehouse','herb','garment','market','academy','pharm2','workshop','textile'];
 const must = (r,label) => { assert(r && r.ok,label+': '+JSON.stringify(r)); return r; };
@@ -76,10 +76,10 @@ function acceptTasks(s,def,cfg,trace) {
     must(G.acceptTask(best.uid),'accept'); trace.push({turn:s.turn,action:'accept',uid:best.uid,id:best.id});
   }
 }
-function play(seed,id,basicOnly=false,profile=selected[id],runConfig) {
+function play(seed,id,basicOnly=false,profile=selected[id],runConfig,growthRep=0) {
   const def=G.SCENARIOS.find(d=>d.id===id),cfg=profiles[profile];
   assert(def&&cfg,'known scenario and profile');
-  const s=G.newGame(seed,id,runConfig),trace=[],popTarget=id==='health'?15:def.requirements.find(r=>r.key==='pop').target;
+  const s=G.newGame(seed,id,runConfig,growthRep),trace=[],popTarget=id==='health'?15:def.requirements.find(r=>r.key==='pop').target;
   let guard=0,firstQualified=null;
   while(!s.over&&guard++<300) {
     if(s.rewardQueue.length) {
@@ -145,13 +145,13 @@ function play(seed,id,basicOnly=false,profile=selected[id],runConfig) {
   assert.deepEqual(G.getState().final,s.final,'final snapshot survives save roundtrip');
   const blueprintsBuilt=s.buildings.filter(b=>!G.BASE_BUILDINGS.some(d=>d.id===b.defId)).length;
   if(basicOnly)assert.equal(blueprintsBuilt,0,'base-building-only route');
-  return {seed,id,basicOnly,profile,runConfig:s.runConfig,cleared,rep:s.rep,pop:s.pop,sat:s.final.sat,money:s.money,
+  return {seed,id,basicOnly,profile,runConfig:s.runConfig,growthRep:s.growthRep,cleared,rep:s.rep,pop:s.pop,sat:s.final.sat,money:s.money,
     buildings:s.buildings.length,blueprintsBuilt,firstQualified,conditions,
     types:Object.fromEntries([...new Set(s.buildings.map(b=>b.defId))].map(id=>[id,s.buildings.filter(b=>b.defId===id).length])),trace};
 }
 function summarize(rows) {
   const avg=key=>+(rows.reduce((sum,r)=>sum+r[key],0)/rows.length).toFixed(2);
-  return {id:rows[0].id,basicOnly:rows[0].basicOnly,profile:rows[0].profile,runConfig:rows[0].runConfig,runs:rows.length,
+  return {id:rows[0].id,basicOnly:rows[0].basicOnly,profile:rows[0].profile,runConfig:rows[0].runConfig,growthRep:rows[0].growthRep,runs:rows.length,
     cleared:rows.filter(r=>r.cleared).length,meanPop:avg('pop'),meanSat:avg('sat'),meanBuildings:avg('buildings'),
     failSeeds:rows.filter(r=>!r.cleared).map(r=>r.seed)};
 }
@@ -163,12 +163,15 @@ if(require.main===module) {
   const ids=args.levels?args.levels.split(','):G.SCENARIOS.map(d=>d.id);
   assert(ids.every(id=>G.SCENARIOS.some(d=>d.id===id)),'unknown level');
   const rows=[],summaries=[];
-  const configs=args.matrix==='1'?G.DIFFICULTIES.flatMap(d=>G.BUFFS.map(b=>({difficultyId:d.id,buffId:b.id}))):
-    [G.normalizeRunConfig({difficultyId:args.difficulty||'normal',buffId:args.buff||'none'})];
+  const growthRep=Number(args.growth||0),available=G.growthStatus(growthRep).buffIds;
+  const combinations=available.reduce((sets,id)=>sets.concat(sets.map(ids=>ids.concat(id))),[[]]);
+  const configs=args.matrix==='1'?G.DIFFICULTIES.flatMap(d=>combinations.map(buffIds=>({difficultyId:d.id,buffIds})))
+    .filter(c=>G.runConfigStatus(c,growthRep).ok):
+    [G.normalizeRunConfig({difficultyId:args.difficulty||'normal',buffIds:args.buffs?args.buffs.split(','):args.buff&&args.buff!=='none'?[args.buff]:[]})];
   const modes=args.mode==='all'?[false]:args.mode==='basic'?[true]:[false,true];
   for(const runConfig of configs)for(const id of ids)for(const basicOnly of modes) {
     const group=[];
-    for(let n=0;n<count;n++)group.push(play(start+n,id,basicOnly,args.profile||selected[id],runConfig));
+    for(let n=0;n<count;n++)group.push(play(start+n,id,basicOnly,args.profile||selected[id],runConfig,growthRep));
     rows.push(...group);const summary=summarize(group);summaries.push(summary);console.log(JSON.stringify(summary));
   }
   if(args.output)fs.writeFileSync(args.output,JSON.stringify({seeds:{start,count},profiles,selected,summaries,rows},null,2));

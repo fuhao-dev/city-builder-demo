@@ -249,7 +249,7 @@ for(const id of ['industry','health','metropolis'])for(const basicOnly of [false
       step.action==='accept'?G.acceptTask(step.uid):step.action==='abandon'?G.abandonTask(step.uid):G.endTurn();
     assert(r.ok,'legal replay: '+id+' '+JSON.stringify(step));
   }
-  eq(G.exportState().final,expected,id+' real actions reproduce the planned final city');
+  eq({...G.exportState().final,runId:undefined},{...expected,runId:undefined},id+' real actions reproduce the planned final city; independent runs have unique settlement ids');
 }
 
 console.log('PASS '+passed+' scenario assertions');
