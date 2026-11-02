@@ -6,6 +6,8 @@
 
 直接双击 `index.html`，不需要构建、不需要服务器、不依赖 CDN。
 
+主要版本更新见 [CHANGELOG.md](CHANGELOG.md)。
+
 - **自动存档**：每次操作后写入 `localStorage`（键名 `dsh_city_save_v34`）；刷新页面会自动恢复上次进度，不需要手动保存。
 - URL 加 `?seed=123` 可以固定随机种子并强制开新局（会覆盖当前存档）。
 - 本机最佳最终声望存在 `localStorage`，键名 `dsh_city_best_rep_v33`；刷新不会丢。
