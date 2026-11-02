@@ -1,5 +1,5 @@
 /*
- * 城建设计局 · 局内 v3.9.1 引擎
+ * 城建设计局 · 局内 v3.9.3 引擎
  * 纯逻辑、无 DOM，可在 Node 里直接 require 测试。
  *
  * 核心：30 回合 / 每回合 1 次建造或城镇升级 / 8 资源 / 人口常驻占用劳力 /
@@ -16,8 +16,8 @@
   var DEFICIT = 13;
   var PRESSURE_MAX = 5;
   var PRESSURE_START = 6;
-  var REP_START = 20;
-  var REP_STEP = 10;
+  var REP_THRESHOLDS = [20, 35, 50, 65, 75];
+  var REP_START = REP_THRESHOLDS[0];
   var START_MONEY = 300;
   var TASK_POP_BONUS = 2;
   var SAVE_VERSION = 3;
@@ -122,15 +122,23 @@
 
   function round2(n) { return Math.round(n * 100) / 100; }
 
-  function repGainFor(sat) {
-    if (!(sat >= REP_START)) return 0;
-    return Math.min(5, 1 + Math.floor((sat - REP_START) / REP_STEP));
+  function repCapFor(pop) {
+    return pop < 12 ? 3 : pop < 15 ? 4 : 5;
+  }
+
+  function repGainFor(sat, pop) {
+    var gain = 0;
+    for (var i = 0; i < REP_THRESHOLDS.length; i++) {
+      if (!(sat >= REP_THRESHOLDS[i])) break;
+      gain++;
+    }
+    return Math.min(gain, repCapFor(pop == null ? START_POP : pop));
   }
 
   function taskStepForOver(over) {
     if (!over) return 1;
     if (over >= 3) return 0.5;
-    if (over === 2) return 0.6;
+    if (over >= 2) return 0.6;
     return 0.8;
   }
 
@@ -169,7 +177,7 @@
   }
 
   function popPenalty(pop) {
-    var brackets = [[5, 1.0], [10, 1.5], [15, 2.0], [20, 2.5], [25, 3.0], [30, 3.5]];
+    var brackets = [[5, 1.0], [15, 0.5], [25, 1.0]];
     var prev = 0, sum = 0;
     for (var i = 0; i < brackets.length; i++) {
       if (pop <= prev) break;
@@ -178,7 +186,7 @@
       if (n > 0) sum += n * rate;
       prev = cap;
     }
-    if (pop > 30) sum += (pop - 30) * 4.0;
+    if (pop > 25) sum += (pop - 25) * 1.5;
     return round2(sum);
   }
 
@@ -307,11 +315,26 @@
 
   /* ---------------- compute ---------------- */
 
+  /* 先汇总原始占用，再统一应用仓库减免；排除任务时也用同一口径。 */
+  function taskOccupancy(excludeUid, discount) {
+    var occ = emptyRes();
+    state.active.forEach(function (t) {
+      if (t.uid !== excludeUid) addTo(occ, TASK_BY_ID[t.defId].occ);
+    });
+    state.board.forEach(function (t) {
+      var def = TASK_BY_ID[t.defId];
+      if (t.uid !== excludeUid && def.type === 'malignant' && !t.aReleased) addTo(occ, def.burdenA);
+    });
+    if (discount) {
+      RES.forEach(function (r) { occ[r.key] = round2(occ[r.key] * (1 - discount)); });
+    }
+    return occ;
+  }
+
   function compute() {
     var supply = emptyRes();
     var demand = emptyRes();
     var extra = emptyRes();
-    var occ = emptyRes();
 
     RES.forEach(function (r) { supply[r.key] = r.base; });
     RES.forEach(function (r) {
@@ -336,15 +359,6 @@
       addTo(extra, def.extra);
     });
 
-    state.active.forEach(function (t) {
-      var def = TASK_BY_ID[t.defId];
-      addTo(occ, def.occ);
-    });
-    state.board.forEach(function (t) {
-      var def = TASK_BY_ID[t.defId];
-      if (def.type === 'malignant' && !t.aReleased) addTo(occ, def.burdenA);
-    });
-
     var discount = 0;
     var market = 0;
     state.buildings.forEach(function (b) {
@@ -354,9 +368,7 @@
       if (def.bonus.occDiscount) discount = Math.max(discount, def.bonus.occDiscount);
       if (def.bonus.sat) market += def.bonus.sat;
     });
-    if (discount) {
-      RES.forEach(function (r) { occ[r.key] = round2((occ[r.key] || 0) * (1 - discount)); });
-    }
+    var occ = taskOccupancy(null, discount);
 
     /* 低阶资源短缺按项计：每缺 1 项，高级产出 -25%；4 项全缺 = -100%。
        短缺判定包含高级建筑自身的额外投入，也会计入高级建筑产出的基础资源；
@@ -434,11 +446,11 @@
     var turnPressure = state.turn <= PRESSURE_START ? 0 :
       round2(Math.min(PRESSURE_MAX, (state.turn - PRESSURE_START) * PRESSURE_MAX / (MAX_TURNS - PRESSURE_START)));
     var sat = round2(baseSat - turnPressure);
-    var repGain = repGainFor(sat);
+    var repGain = repGainFor(sat, state.pop);
     var popLoss = sat < 0 ? Math.min(3, 1 + Math.floor(-sat / 10)) : 0;
 
     return {
-      supply: supply, demand: demand, extra: extra, occ: occ, per: per,
+      supply: supply, demand: demand, extra: extra, occ: occ, occDiscount: discount, per: per,
       sum: sum, penalty: penalty, over: over,
       baseSat: baseSat, turnPressure: turnPressure,
       sat: sat, repGain: repGain, popLoss: popLoss, market: market,
@@ -705,7 +717,11 @@
 
   /* ---------------- tasks ---------------- */
 
-  function previewTask(uid) {
+  /* 接取后的即时供需（不推进回合）；已接任务直接使用当前供需。
+     不经过接取门槛，让置灰任务也能展示接取后的城市缺口。 */
+  function taskResourcePreview(uid) {
+    if (!state) return null;
+    if (state.active.some(function (t) { return t.uid === uid; })) return compute();
     var idx = state.board.findIndex(function (t) { return t.uid === uid; });
     if (idx < 0) return null;
     var t = state.board[idx];
@@ -714,11 +730,16 @@
     try {
       state.board = state.board.filter(function (x) { return x.uid !== uid; });
       state.active = state.active.concat([Object.assign({}, t, { progress: 0 })]);
-      return compute().sat;
+      return compute();
     } finally {
       state.board = savedBoard;
       state.active = savedActive;
     }
+  }
+
+  function previewTask(uid) {
+    var c = taskResourcePreview(uid);
+    return c ? c.sat : null;
   }
 
   /* 下一回合结算预测：临时 clone 后真正走一遍 endTurn，再恢复现场。
@@ -852,14 +873,12 @@
       return { ok: false, error: '已过接取期限' };
     }
     var c = compute();
-    var occMap = {};
-    c.per.forEach(function (p) { occMap[p.key] = p.occ; });
-    var ownBurden = (def.type === 'malignant' && !t.aReleased && def.burdenA) ? def.burdenA : {};
+    var otherOcc = taskOccupancy(uid, c.occDiscount);
     var bad = [];
     Object.keys(def.occ).forEach(function (k) {
       var r = RES_BY_KEY[k];
       var supply = c.supply[k] || 0;
-      var occupied = round2((occMap[k] || 0) - (ownBurden[k] || 0));
+      var occupied = otherOcc[k] || 0;
       if (!(supply > occupied)) {
         bad.push((r ? r.name : k) + '：供给 ' + supply + '，已占用 ' + occupied);
       }
@@ -1029,6 +1048,7 @@
     estimateTaskFinish: estimateTaskFinish,
     abandonTask: abandonTask,
     previewTask: previewTask,
+    taskResourcePreview: taskResourcePreview,
     endTurn: endTurn,
     chooseBlueprint: chooseBlueprint,
     chooseBlueprints: chooseBlueprints,
@@ -1054,7 +1074,8 @@
     PRESSURE_MAX: PRESSURE_MAX,
     PRESSURE_START: PRESSURE_START,
     REP_START: REP_START,
-    REP_STEP: REP_STEP,
+    REP_THRESHOLDS: REP_THRESHOLDS.slice(),
+    repCapFor: repCapFor,
     repGainFor: repGainFor,
     taskProgressStep: taskProgressStep,
     START_MONEY: START_MONEY,

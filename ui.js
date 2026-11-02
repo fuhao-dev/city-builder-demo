@@ -1,4 +1,4 @@
-/* 城建设计局 · v3.9.1 界面 */
+/* 城建设计局 · v3.9.3 界面 */
 (function () {
   'use strict';
 
@@ -79,21 +79,14 @@
   function defOfBuilding(b) { return G.buildingDef(b.defId); }
   function resName(key) { return G.resource(key) ? G.resource(key).name : key; }
   function round2(n) { return Math.round(n * 100) / 100; }
-  function taskOccText(def, t, active) {
-    var c = G.compute();
+  function taskOccText(def, t) {
+    var c = G.taskResourcePreview(t.uid);
     var per = (c && c.per) || [];
     return Object.keys(def.occ || {}).map(function (k) {
       var p = null;
       for (var i = 0; i < per.length; i++) if (per[i].key === k) p = per[i];
-      var supply = p ? p.sup : 0;
-      var occupied = p ? p.occ : 0;
-      /* 当前任务已计入 occ 时先扣除，再按公式“共计 − 已占用 − 本任务占用”加回；
-         未接取的恶性任务当前计入的是出生负担 A，也要先换成占用 B。 */
-      if (active) occupied = round2(occupied - (def.occ[k] || 0));
-      else if (def.type === 'malignant' && !t.aReleased && def.burdenA) {
-        occupied = round2(occupied - (def.burdenA[k] || 0));
-      }
-      var left = round2(supply - occupied - (def.occ[k] || 0));
+      if (!p) return resName(k) + ' ' + def.occ[k] + '（—）';
+      var left = round2(p.sup - p.dem - p.occ);
       var tag = left < 0
         ? '<span class="tc-lack">缺 ' + fmt1(-left) + '</span>'
         : '<span class="tc-surplus">余 ' + fmt1(left) + '</span>';
@@ -165,10 +158,10 @@
     $('statMoney').textContent = fmt(S.money);
     $('statPop').textContent = S.pop;
     var sat = $('statSat');
-    var sat = $('statSat');
     sat.textContent = fmt1(S.sat);
     sat.className = 'v sat ' + (S.sat < 0 ? 'neg' : S.sat < G.REP_START ? 'mid' : 'pos');
-    sat.title = '满意度 ' + G.REP_START + ' 起才给声望；每 +' + G.REP_STEP + ' 再 +1';
+    sat.title = '满意度达到 ' + G.REP_THRESHOLDS.join(' / ') + '：每回合声望 +1 / +2 / +3 / +4 / +5；当前 P' + S.pop + ' 上限 +' + G.repCapFor(S.pop);
+    $('statPop').title = '每回合声望上限：P<12 为 +3，P12–14 为 +4，P≥15 为 +5；按当前人口计算';
     $('statRep').textContent = S.rep;
     var labor = $('statLabor');
     labor.textContent = used + ' / ' + S.pop;
@@ -247,12 +240,13 @@
         ' − 赤字 ' + G.DEFICIT +
         (pressure ? ' − <span class="sat-neg">回合压力 ' + fmt1(pressure) + '</span>' : '') +
         (n.market ? ' + 市场 ' + n.market : '') + '</span>' +
-        '<span class="sat-rep">' + nextLabel + '声望 +' + n.repGain + '</span>';
+        '<span class="sat-rep">' + nextLabel + '声望 +' + n.repGain + '（P' + n.pop + ' 上限 +' + G.repCapFor(n.pop) + '）</span>';
     } else {
       math = '当前 <b>' + fmt1(c.sat) + '</b> · 下回合预测不可用（先处理蓝图/劳力）';
     }
     $('satMath').innerHTML = math;
     $('statRepNext').textContent = n ? nextLabel + '声望 +' + n.repGain : '下回合 —';
+    $('statRepNext').title = n ? '按预测结算人口 P' + n.pop + '，每回合声望上限 +' + G.repCapFor(n.pop) + '；任务声望奖励不受此上限限制' : '';
   }
 
   function renderCity(S, used) {
@@ -420,7 +414,7 @@
         return '<article class="task-card ' + d.type + (blocked ? ' blocked' : '') + '">' +
           '<div class="tc-top"><b>' + d.name + '</b><span class="badge ' + d.type + '">' + typeLabel(d.type) + '</span>' +
           '<span class="tc-dur">' + d.duration + ' 回合</span></div>' +
-          '<div class="tc-occ" title="余量 = 供给 − 已占用 − 本任务占用；缺 X 为接取后缺口">' + occLabel + '：' + taskOccText(d, t, false) + '</div>' +
+          '<div class="tc-occ" title="接取后余额 = 接取后供给 − 城市需求（人口及建筑消耗）− 全部任务占用；已计入仓库减免与高级减产">' + occLabel + '：' + taskOccText(d, t) + '</div>' +
           '<div class="tc-reward">' + rewardText(d) + '</div>' +
           extra +
           '<div class="tc-foot"><span class="tc-sat' + previewCls + '">接取后预计满意度 ' +
@@ -453,7 +447,7 @@
           '<div class="tc-top"><b>' + d.name + '</b><span class="badge">进行中</span>' +
           '<span class="tc-dur">' + t.progress + ' / ' + d.duration + '</span></div>' +
           '<div class="bar"><i style="width:' + pct + '%"></i></div>' +
-          '<div class="tc-occ" title="余量 = 供给 − 已占用 − 本任务占用；当前进行中的任务先扣除自身占用">' + occLabel + '：' + taskOccText(d, t, true) + '</div>' +
+          '<div class="tc-occ" title="当前余额 = 当前供给 − 城市需求（人口及建筑消耗）− 全部任务占用；自身占用已计入，仓库减免已生效">' + occLabel + '：' + taskOccText(d, t) + '</div>' +
           '<div class="tc-reward">完成奖励：' + rewardText(d) + '</div>' +
           (late ? '<div class="tc-deadline urgent">本局剩余回合不足：预计 T' + finishTurn + ' 完成，最终 T' + G.MAX_TURNS + '</div>' : '') +
           '<div class="tc-foot"><span class="tc-sat' + (late ? ' neg' : '') + '">' + foot + '</span>' +
@@ -495,15 +489,16 @@
       '<ul>' +
       '<li><b>资源条</b>：总长度 = 需求 + 占用；金色段为任务占用，青色/蓝色段为已覆盖需求，红色斜纹段为供给缺口；满足分改为文字。</li>' +
       '<li><b>资源余量</b>：资源卡大字显示“额外供给 / 缺口”，口径为提供 − 占用 − 需求；负数表示满足需求后仍缺的量。</li>' +
-      '<li><b>满意度</b> = 八项资源满足分 − 人口惩罚 − 赤字 ' + G.DEFICIT + ' − 回合压力。&lt;0 掉人口；0–19.9 稳定、不加声望；20–29.9 声望 +1，之后每 +10 再 +1（最高 +5）。</li>' +
-      '<li><b>超额减速</b>：同一资源占用超过供给时，相关任务进度变慢：超额 1 为 0.8 速、2 为 0.6 速、3 及以上为 0.5 速。集中叠接同资源会拖慢整批任务。</li>' +
+      '<li><b>满意度</b> = 八项资源满足分 − 人口惩罚 − 赤字 ' + G.DEFICIT + ' − 回合压力。&lt;0 掉人口；0–19.99 稳定、不加声望；达到 20 / 35 / 50 / 65 / 75 时，每回合声望分别 +1 / +2 / +3 / +4 / +5。</li>' +
+      '<li><b>人口与声望</b>：人口惩罚分段累加，1–5 人每人扣 1，6–15 人每人扣 0.5，16–25 人每人扣 1，26 人起每人扣 1.5。每回合声望上限按当前人口：P&lt;12 为 +3，P12–14 为 +4，P≥15 为 +5；任务声望奖励不受此上限限制。</li>' +
+      '<li><b>超额减速</b>：任务所用资源的超额合计大于 0 且小于 2 时为 0.8 速，达到 2 且小于 3 时为 0.6 速，达到 3 时为 0.5 速。仓库产生的小数也按此分档。</li>' +
       '<li><b>高级减产</b>：低阶资源每缺 1 项，高级产出 -25%；缺 2 项 -50%，缺 3 项 -75%，四项全缺停产。部分减产仍按原高级投入计算，停产时才暂停额外投入。</li>' +
       '<li><b>回合压力</b>：T1–6 为 0，T7 起线性增加到 T30 的 −5；不管基础满意度正负都扣，后期越来越难拿声望。</li>' +
       '<li><b>每回合</b> 1 次建造或城镇升级；所有建筑最多占 1 人口，市场/仓库等部分蓝图 0 人口；人口既提供劳力也产生需求。</li>' +
       '<li><b>净产出</b>：1 劳力会占用 1 人，其八项需求合计 ' + G.OCCUPANCY_COST + '（四项高阶各 1），作为该建筑的负向产出；额外消耗也从产出中扣除。基础生产建筑满产净 ' + fmtNet(G.buildingNet(G.buildingDef('farm'))) + '，蓝图满产净 ' + fmtNet(G.buildingNet(G.buildingDef('wind'))) + '，建造卡会直接标出。净产出只用于横向比较，实际供需仍按产出与人口需求分别计算。</li>' +
       '<li><b>城镇升级</b>：当前人口达到 P6 / P9 / P12 / P15 时，可手动升级城镇；升级消耗本回合建造行动，不花金钱、不占建筑位、不降级。每次升级从 5 张蓝图中选 2 张。</li>' +
       '<li><b>建造预览</b>：点击建筑卡先预览；确认后才扣钱/占劳力。预览列出资源变化、满意度与具体高级减产原因。</li>' +
-      '<li><b>任务</b> 开局 5 张，T' + G.REFRESH.join('/T') + ' 各刷新 3 张；接取前每种占用资源都必须有正余量，0 产出不能接。任务卡会提前显示「接取后预计完成回合」，已计入接取后的同资源超额减速；占用行会标出接取后“余 X / 缺 X”（供给 − 已占用 − 本任务占用）。完成后二选一：金钱+人口，或金钱+资源供给，选择前不能继续；选择弹窗可隐藏查看资源。</li>' +
+      '<li><b>任务</b> 开局 5 张，T' + G.REFRESH.join('/T') + ' 各刷新 3 张；接取前供给须大于其他任务占用，0 产出不能接。任务卡会提前显示「接取后预计完成回合」；占用行的“余 X / 缺 X”计入城市需求：接取后供给 − 人口及建筑消耗 − 接取后全部任务占用，仓库减免和高级减产同时生效。城市出现缺口仍可接取，需权衡满意度。完成后二选一：金钱+人口，或金钱+资源供给，选择前不能继续；选择弹窗可隐藏查看资源。</li>' +
       '<li><b>蓝图</b> 开局 3 选 1；之后只通过城镇升级获得（每次 5 选 2）；声望不再给蓝图。蓝图不额外花建造行动，但建造仍花钱/劳力。蓝图选择弹窗可隐藏查看资源。</li>' +
       '</ul></div>';
   }
@@ -512,8 +507,10 @@
     return '<div class="rules">' +
       '<div class="end-kicker">30 回合 · 最终得分 = 累计声望</div>' +
       '<h2>规则速览</h2>' +
-      '<p><b>满意度</b>：八项资源各 0–15 分，减去人口惩罚、赤字 ' + G.DEFICIT + ' 和回合压力。&lt;0 掉人口；0–19.9 稳定、不加声望；20–29.9 每回合 +1，之后每 +10 再 +1（最高 5）。</p>' +
-      '<p><b>超额减速</b>：同一资源被任务占用超过供给时，相关任务进度变慢：超额 1 → 0.8 速，2 → 0.6 速，3+ → 0.5 速。任务仍会推进，但叠接同资源会拖慢整批任务，奖励不再免费。</p>' +
+      '<p><b>满意度</b>：八项资源各 0–15 分，减去人口惩罚、赤字 ' + G.DEFICIT + ' 和回合压力。&lt;0 掉人口；0≤满意度&lt;20 不加声望；20≤满意度&lt;35 每回合 +1，35≤满意度&lt;50 +2，50≤满意度&lt;65 +3，65≤满意度&lt;75 +4，≥75 +5。</p>' +
+      '<p><b>人口惩罚</b>：分段累加，1–5 人每人扣 1，6–15 人每人扣 0.5，16–25 人每人扣 1，26 人起每人扣 1.5。例如 P5 扣 5、P11 扣 8、P15 扣 10、P20 扣 15、P25 扣 20。</p>' +
+      '<p><b>声望人口上限</b>：P&lt;12 每回合最多 +3，P12–14 最多 +4，P≥15 最多 +5。按结算时当前人口计算，人口下降会降低上限，城镇等级不能保留上限。任务的固定声望奖励不受影响；选择人口奖励会改变后续上限，不补发本回合已结算的声望。</p>' +
+      '<p><b>超额减速</b>：任务所用资源的超额合计为 0 时正常推进；大于 0 且小于 2 时为 0.8 速，达到 2 且小于 3 时为 0.6 速，达到 3 时为 0.5 速。小数按所在区间处理，超额越多不会反而加速。</p>' +
       '<p><b>回合压力</b>：T1–6 为 0，T7 起线性增加，T30 为 −5；无论基础满意度正负都扣。后期想拿声望，需要比前期更高的基础供给。</p>' +
       '<p><b>资源条</b>：彩条不再表示满意度，总长度 = 需求 + 占用；金色为任务占用，青色/蓝色为已覆盖需求，红色斜纹为供给缺口。文字显示满足分，悬停可看供给、占用、需求与缺口。</p>' +
       '<p><b>资源余量</b>：资源卡大字“额外供给 / 缺口”= 提供 − 占用 − 需求；正数为满足需求后的额外供给，负数为仍缺的量（按缺口绝对值显示）。</p>' +
@@ -523,7 +520,7 @@
       '<p><b>净产出</b>：把占用人口视为负向产出。1 劳力占用 1 人，八项需求合计 ' + G.OCCUPANCY_COST + '；满产净产出 = 产出总和 − 额外消耗总和 − 劳力 × ' + G.OCCUPANCY_COST + '。基础生产建筑 ' + fmtNet(G.buildingNet(G.buildingDef('farm'))) + '，蓝图 ' + fmtNet(G.buildingNet(G.buildingDef('wind'))) + '；实际高级产出还会受低阶短缺减产。</p>' +
       '<p><b>建造预览</b>：点击建筑卡先打开预览，确认后才真正建造。预览显示金钱/劳力/满意度变化、资源供需变化，以及高级建筑当前和建造后的具体减产原因（哪项低阶资源、可用/需求/缺口）。</p>' +
       '<p><b>城镇升级</b>：当前人口达到 P6 / P9 / P12 / P15 时可手动升级；每级消耗本回合建造行动，不花金钱、不占 24 座建筑上限、不降级。每次升级弹出 5 选 2 蓝图。声望不再给蓝图。</p>' +
-      '<p><b>任务</b>：开局 5 张，T' + G.REFRESH.join('/T') + ' 各刷新 3 张。任务栏不限张数；限时任务过期消失；恶性任务不接也占出生负担 A。接取前看「接取后预计满意度」、变化量和「接取后预计完成回合」；占用行会标出每种资源接取后的“余 X / 缺 X”（供给 − 已占用 − 本任务占用）。完成回合已经计入接取后新增占用造成的超额减速，预计超过 T30 会提前标红。接取条件是每种占用资源当前供给 &gt; 已占用，0 产出资源不能接。完成后在「金钱+人口」和「金钱+资源供给」中二选一，选择前不能继续。</p>' +
+      '<p><b>任务</b>：开局 5 张，T' + G.REFRESH.join('/T') + ' 各刷新 3 张。任务栏不限张数；限时任务过期消失；恶性任务不接也占出生负担 A。接取前看「接取后预计满意度」、变化量和「接取后预计完成回合」；占用行的“余 X / 缺 X”= 接取后供给 − 城市需求（人口及建筑消耗）− 接取后全部任务占用。仓库减免、高级减产和恶性 A→B 替换均计入；进行中显示当前余额，自身占用只算一次。完成回合已经计入同资源超额减速，预计超过 T30 会提前标红。接取条件仍为当前供给 &gt; 其他任务占用，0 产出不能接；城市余额为负时仍可接取。完成后在「金钱+人口」和「金钱+资源供给」中二选一，选择前不能继续。</p>' +
       '<p><b>选择弹窗</b>：任务奖励和蓝图选择弹窗都可以点“隐藏窗口，查看资源与人口”，右下角“返回选择”恢复；隐藏期间不会丢失奖励或蓝图选择状态。</p>' +
       '<p><b>终局</b>：第 30 回合按钮变为「结算本局」；接取前若预计完成回合超过 T' + G.MAX_TURNS + '，任务卡会标红提醒。</p>' +
       '<button class="btn primary" data-close-help="1" type="button">知道了</button>' +

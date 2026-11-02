@@ -1,4 +1,4 @@
-/* 局内 v3.9.1 引擎测试：起手 / 净产出 / 城镇 / 混合蓝图 / 停用 / 任务 / 限时 / 恶性 / 回合压力 / 30 回合 */
+/* 局内 v3.9.3 引擎测试：起手 / 净产出 / 城镇 / 混合蓝图 / 停用 / 任务 / 限时 / 恶性 / 回合压力 / 30 回合 */
 const G = require('./game.js');
 
 let passed = 0;
@@ -119,7 +119,7 @@ ok(G.build('plant').ok, '建电站');
 G.endTurn();
 eq(s.turn, 5, 'T5');
 near(s.sat, 42, 'T5 满意度 42');
-eq(s.rep, 6, 'T5 声望 6（T3 +1、T4 +2、T5 +3）');
+eq(s.rep, 4, 'T5 声望 4（T3 +1、T4 +1、T5 +2）');
 eq(G.laborUsed(), 4, '四基础劳力 4');
 eq(s.money, 48, 'T5 金钱 48');
 let clothesTry = G.build('clothes');
@@ -156,7 +156,7 @@ ok(badChoice.ok === false && s.money === rewardMoney, '非法奖励选择不改�
 ok(G.chooseReward('pop').ok, '选择人口奖励');
 eq(s.pop, 8, '开垦人口 +3 → P8');
 eq(s.money, 208, '开垦 +160 → 208');
-eq(s.rep, 16, 'T5 6 + T6/T7 +2、T8 +3 + 开垦 +3 = 16');
+eq(s.rep, 13, 'T5 4 + T6/T7/T8 各 +2 + 开垦 +3 = 13');
 eq(G.laborUsed(), 4, '四基础仍 4');
 ok(G.build('clothes').ok, 'P8 后服装厂落地（1 劳力）');
 eq(G.buildingDef('clothes').labor, 1, '服装厂只占 1 人口');
@@ -421,18 +421,76 @@ eq(zeroF.last.turnPressure, 5, '基础满意度 0 时 T30 也扣 5');
 eq(zeroF.last.sat, -5, '基础满意度 0 时 T30 为 -5');
 eq(zeroF.last.popLoss, 1, '基础满意度 0 时 T30 掉 1 人口');
 
-/* 12.6 声望档位：20 起才 +1，此前 0–19.9 只有稳定 */
-eq(G.repGainFor(11.9), 0, '11.9 不加声望');
-eq(G.repGainFor(12.4), 0, '12.4 不加声望');
-eq(G.repGainFor(18.4), 0, '18.4 不加声望');
-eq(G.repGainFor(19.99), 0, '19.99 不加声望');
-eq(G.repGainFor(20), 1, '20 声望 +1');
-eq(G.repGainFor(29.99), 1, '29.99 声望 +1');
-eq(G.repGainFor(30), 2, '30 声望 +2');
-eq(G.repGainFor(40), 3, '40 声望 +3');
-eq(G.repGainFor(50), 4, '50 声望 +4');
-eq(G.repGainFor(60), 5, '60 声望 +5');
-eq(G.repGainFor(70), 5, '70 封顶 +5');
+/* 12.6 人口惩罚：累计分段，边界不整段重算 */
+for (const [pop, penalty] of [[0, 0], [1, 1], [5, 5], [6, 5.5], [11, 8],
+  [14, 9.5], [15, 10], [16, 11], [20, 15], [25, 20], [26, 21.5], [30, 27.5]]) {
+  near(G.popPenalty(pop), penalty, 'P' + pop + ' 人口惩罚');
+}
+
+/* 12.6.1 声望档位：最后一档为 75，不能再用统一步长 */
+for (const [sat, rep] of [[-1, 0], [0, 0], [19.99, 0], [20, 1], [34.99, 1],
+  [35, 2], [49.99, 2], [50, 3], [64.99, 3], [65, 4], [74.99, 4], [75, 5], [120, 5]]) {
+  eq(G.repGainFor(sat, 15), rep, 'P15 满意度 ' + sat + ' 的声望');
+}
+for (const [pop, cap] of [[5, 3], [11, 3], [12, 4], [14, 4], [15, 5], [30, 5]]) {
+  eq(G.repCapFor(pop), cap, 'P' + pop + ' 声望上限');
+  eq(G.repGainFor(100, pop), cap, '高满意度 P' + pop + ' 仍遵守上限');
+  eq(G.repGainFor(20, pop), 1, '人口上限不直接奖励声望 P' + pop);
+}
+eq(G.repGainFor(100), 3, '省略人口时按起始人口计算，不绕过上限');
+
+function reputationState(pop) {
+  const st = G.newGame(123);
+  G.chooseBlueprint(st.pendingDraw.options[0]);
+  st.pop = pop;
+  st.townLevel = 4;
+  st.board = [];
+  st.active = [];
+  G.RES.forEach(r => { st.taskSupply[r.key] = 100; });
+  return st;
+}
+
+/* 12.6.2 实际到账、城镇不降级和各类预测使用当前人口 */
+for (const [pop, cap] of [[11, 3], [12, 4], [14, 4], [15, 5]]) {
+  const st = reputationState(pop);
+  st.board = [{ uid: 'rep-reclaim', defId: 'reclaim', spawnTurn: 1 }];
+  const before = JSON.stringify(G.exportState());
+  eq(G.compute().repGain, cap, 'Lv4 当前人口 P' + pop + ' 结算上限');
+  eq(G.forecast().last.repGain, cap, '下回合预测 P' + pop + ' 上限');
+  eq(G.forecastTask('rep-reclaim').last.repGain, cap, '接取任务预测 P' + pop + ' 上限');
+  const preview = G.buildPreview('farm');
+  eq(preview.after.repGain, cap, '建造后即时预测 P' + pop + ' 上限');
+  eq(preview.next.repGain, cap, '建造后下回合预测 P' + pop + ' 上限');
+  eq(JSON.stringify(G.exportState()), before, '声望预测不改真实状态 P' + pop);
+  ok(G.endTurn().ok, '声望场景可以推进 P' + pop);
+  eq(st.rep, cap, '实际到账使用当前人口 P' + pop);
+}
+
+const repDrop = reputationState(12);
+G.RES.forEach(r => { repDrop.taskSupply[r.key] = 0; });
+const dropForecast = G.forecast();
+eq(dropForecast.last.pop, 12, '预测结算快照保留掉人口前 P12');
+eq(dropForecast.pop, 10, '供给不足预测掉到 P10');
+eq(dropForecast.last.repGain, 0, '负满意度不加声望');
+eq(repDrop.pop, 12, '掉人口预测不修改真实人口');
+G.endTurn();
+eq(repDrop.pop, 10, '实际掉到 P10');
+eq(repDrop.townLevel, 4, '人口减少保留城镇等级');
+G.RES.forEach(r => { repDrop.taskSupply[r.key] = 100; });
+eq(G.forecast().last.repGain, 3, '恢复供给后人口上限随下降回到 +3');
+
+/* 12.6.3 人口奖励影响后续结算，不补发本回合，任务声望不受上限 */
+const repReward = reputationState(11);
+G.endTurn();
+eq(repReward.rep, 3, '领奖前已结算 +3');
+repReward.rewardQueue = [{ name: '测试奖励', pop: 4, rep: 8, money: 0, sup: { food: 1 } }];
+ok(G.chooseReward('pop').ok, '可以领取人口奖励');
+eq(repReward.pop, 15, '人口奖励跨过 P12 / P15');
+eq(repReward.rep, 11, '固定任务声望 +8 不受人口上限，不补发满意度声望');
+eq(repReward.last.repGain, 5, '奖励后即时快照同步 +5 上限');
+eq(G.forecast().last.repGain, 5, '奖励后下回合预测上限 +5');
+G.endTurn();
+eq(repReward.rep, 16, '下回合实际到账 +5');
 
 /* 12.7 同资源超额：接取前必须有正余量；供给下降后仍会超额减速 */
 const overState = G.newGame(51);
@@ -462,6 +520,89 @@ eq(G.taskProgressStep('ov-mining'), 0.5, '超额 3+ 时每回合只推进 0.5');
 G.endTurn(); // T7
 eq(G.getState().active.every(t => t.progress === 0.5), true, '两个任务都只推进 0.5');
 eq(G.getState().active.every(t => t.progress < 1), true, '没有任务在 T7 完成');
+
+/* 12.7.1 小数超额不能反向加速，预测倍率与实际推进一致 */
+for (const [over, step] of [[0, 1], [0.01, 0.8], [1.99, 0.8], [2, 0.6], [2.4, 0.6], [2.99, 0.6], [3, 0.5], [3.01, 0.5]]) {
+  const fractional = G.newGame(1);
+  G.chooseBlueprint(fractional.pendingDraw.options[0]);
+  fractional.board = [];
+  fractional.active = [
+    { uid: 'fraction-tailor', defId: 'tailor', progress: 0 },
+    { uid: 'fraction-blackmarket', defId: 'blackmarket', progress: 0, aReleased: true }
+  ];
+  fractional.taskSupply.clothes = 4 - over;
+  near(G.taskProgressStep('fraction-tailor'), step, '超额 ' + over + ' 的进度倍率');
+  ok(G.endTurn().ok, '小数超额场景可以结算');
+  near(fractional.active.find(t => t.uid === 'fraction-tailor').progress, step, '超额 ' + over + ' 的实际推进');
+}
+
+/* 12.7.2 仓库下接取门槛也按减免后的其他任务占用计算 */
+const warehouseGate = G.newGame(15);
+ok(G.chooseBlueprint('warehouse').ok, '种子 15 可选仓库开局');
+ok(G.build('warehouse').ok, 'T1 建仓库');
+G.endTurn(); G.build('farm');
+G.endTurn(); G.build('mine');
+G.acceptTask(warehouseGate.board.find(t => t.defId === 'prospect').uid);
+G.endTurn(); G.build('well');
+G.endTurn(); G.chooseReward('sup'); G.build('plant');
+G.endTurn();
+const zeroBlackmarket = warehouseGate.board.find(t => t.defId === 'blackmarket');
+ok(!!zeroBlackmarket, '种子 15 T6 刷出黑市');
+eq(G.compute().supply.clothes, 0, '尚无衣服供给');
+eq(G.taskAcceptStatus(zeroBlackmarket.uid).ok, false, '启用仓库也不能在 0 衣服供给时接黑市');
+eq(G.acceptTask(zeroBlackmarket.uid).ok, false, '实际接取同样拦截 0 产出');
+warehouseGate.taskSupply.clothes = 0.8;
+warehouseGate.active = [{ uid: 'other-tailor', defId: 'tailor', progress: 0 }];
+eq(G.taskAcceptStatus(zeroBlackmarket.uid).ok, false, '0.8 供给小于其他任务减免后占用 1.6，不能接取');
+warehouseGate.taskSupply.clothes = 1.6;
+eq(G.taskAcceptStatus(zeroBlackmarket.uid).ok, false, '供给等于其他任务占用时不能接取');
+warehouseGate.taskSupply.clothes = 1.61;
+eq(G.taskAcceptStatus(zeroBlackmarket.uid).ok, true, '供给大于其他任务减免后占用时可接取');
+
+/* 12.7.3 任务资源预览计入城市需求、仓库和已有任务，且不改变真实状态 */
+const balances = G.newGame(1);
+G.chooseBlueprint(balances.pendingDraw.options[0]);
+balances.buildings = [{ uid: 'balance-warehouse', defId: 'warehouse', active: true }];
+balances.taskSupply.water = 9;
+balances.taskSupply.power = 9;
+balances.active = [{ uid: 'balance-waterworks', defId: 'waterworks', progress: 0 }];
+balances.board = [{ uid: 'balance-vaccine', defId: 'vaccine', spawnTurn: 1, progress: 0 }];
+const balancesBefore = JSON.stringify(G.exportState());
+const vaccinePreview = G.taskResourcePreview('balance-vaccine');
+near(vaccinePreview.occ.water, 5.6, '供水 4 与疫苗 3 合计减免后占水 5.6');
+near(vaccinePreview.supply.water - vaccinePreview.demand.water - vaccinePreview.occ.water, 1.9, '水余额 = 10 - 城市需求 2.5 - 任务占用 5.6');
+near(vaccinePreview.supply.power - vaccinePreview.demand.power - vaccinePreview.occ.power, 5.1, '电力余额也计入城市需求');
+eq(JSON.stringify(G.exportState()), balancesBefore, '预览不接取、不改进度、不改变存档');
+const activePreview = G.taskResourcePreview('balance-waterworks');
+near(activePreview.occ.water, 3.2, '进行中任务自身占用只计算一次');
+ok(G.acceptTask('balance-vaccine').ok, '实际接取疫苗');
+eq(JSON.stringify(G.taskResourcePreview('balance-vaccine')), JSON.stringify(vaccinePreview), '接取前预览与接取后实际供需一致');
+eq(G.taskResourcePreview('missing-task'), null, '不存在的任务无资源预览');
+
+balances.active = [];
+balances.taskSupply.clothes = 10;
+balances.board = [{ uid: 'balance-blackmarket', defId: 'blackmarket', spawnTurn: 1, progress: 0, aReleased: false }];
+const malignantPreview = G.taskResourcePreview('balance-blackmarket');
+near(malignantPreview.occ.clothes, 1.6, '恶性 A 替换成 B，并对 B 减免 20%');
+near(malignantPreview.supply.clothes - malignantPreview.demand.clothes - malignantPreview.occ.clothes, 3.4, '黑市余额 = 10 - 城市需求 5 - 折后占用 1.6');
+ok(G.acceptTask('balance-blackmarket').ok, '实际接取黑市');
+eq(JSON.stringify(G.compute()), JSON.stringify(malignantPreview), '恶性任务预览与实际一致');
+ok(G.abandonTask('balance-blackmarket').ok, '放弃黑市');
+near(G.taskResourcePreview('balance-blackmarket').occ.clothes, 1.6, 'A 已释放的恶性任务重新接取仍只算 B');
+
+/* 12.7.4 接取后的城市需求包含建筑投入，供给包含接取引发的高级减产 */
+const reducedPreview = G.newGame(1);
+G.chooseBlueprint(reducedPreview.pendingDraw.options[0]);
+reducedPreview.buildings = ['farm', 'mine', 'plant', 'well', 'clothes'].map(id => ({ uid: 'preview-' + id, defId: id, active: true }));
+reducedPreview.board = [{ uid: 'preview-relief', defId: 'relief', spawnTurn: 1, progress: 0, acceptBy: 3 }];
+eq(G.compute().supply.clothes, 10, '接取前服装厂满产');
+const reduced = G.taskResourcePreview('preview-relief');
+eq(reduced.advancedOutputPct, 75, '救济占用导致食物不足，高级产出降至 75%');
+near(reduced.supply.clothes, 7.5, '资源预览使用接取后的高级供给');
+near(reduced.demand.power, 4.5, '城市电力需求包含人口 2.5 和服装厂投入 2');
+near(reduced.supply.food - reduced.demand.food - reduced.occ.food, -4, '食物余额包含城市需求而不是只扣任务');
+ok(G.acceptTask('preview-relief').ok, '城市有缺口仍沿用原接取规则');
+eq(JSON.stringify(G.compute()), JSON.stringify(reduced), '减产场景预览与实际一致');
 
 /* 12.8 高级资源：低阶不足停产；0 产出任务不能接 */
 const advBad = G.newGame(88);
