@@ -1,5 +1,5 @@
 /*
- * 城建设计局 · 局内 v3.8.1 引擎
+ * 城建设计局 · 局内 v3.9.0 引擎
  * 纯逻辑、无 DOM，可在 Node 里直接 require 测试。
  *
  * 核心：30 回合 / 每回合 1 次建造或城镇升级 / 8 资源 / 人口常驻占用劳力 /
@@ -32,10 +32,10 @@
     { key: 'material',  name: '原料', icon: '⛏',  group: 'basic',    base: 1, demand: 0.5 },
     { key: 'power',     name: '电力', icon: '⚡', group: 'basic',    base: 1, demand: 0.5 },
     { key: 'water',     name: '水',   icon: '💧', group: 'basic',    base: 1, demand: 0.5 },
-    { key: 'clothes',   name: '衣服', icon: '👕', group: 'advanced', base: 0, demand: 0.4 },
-    { key: 'furniture', name: '家具', icon: '🛋', group: 'advanced', base: 0, demand: 0.3 },
-    { key: 'medicine',  name: '药品', icon: '💊', group: 'advanced', base: 0, demand: 0.2 },
-    { key: 'education', name: '教育', icon: '📚', group: 'advanced', base: 0, demand: 0.15 }
+    { key: 'clothes',   name: '衣服', icon: '👕', group: 'advanced', base: 0, demand: 1 },
+    { key: 'furniture', name: '家具', icon: '🛋', group: 'advanced', base: 0, demand: 1 },
+    { key: 'medicine',  name: '药品', icon: '💊', group: 'advanced', base: 0, demand: 1 },
+    { key: 'education', name: '教育', icon: '📚', group: 'advanced', base: 0, demand: 1 }
   ];
   var RES_BY_KEY = {};
   RES.forEach(function (r) { RES_BY_KEY[r.key] = r; });
@@ -823,6 +823,12 @@
           if (!stepResult || !stepResult.ok) break;
         }
         guard += 1;
+        /* 估算过程中其他任务先完成时，奖励队列会挡住后续 endTurn。
+           用“人口”选项自动领取：不改变资源供给与任务超额，只影响人口，
+           避免把奖励队列误判成目标任务的完成时间。 */
+        while (copy.rewardQueue && copy.rewardQueue.length) {
+          if (!chooseReward('pop').ok) break;
+        }
         if (!copy.active.some(function (x) { return x.uid === uid; })) finishTurn = copy.turn;
       }
       return {

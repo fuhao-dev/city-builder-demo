@@ -1,4 +1,4 @@
-/* 局内 v3.8.1 引擎测试：起手 / 净产出 / 城镇 / 混合蓝图 / 停用 / 任务 / 限时 / 恶性 / 回合压力 / 30 回合 */
+/* 局内 v3.9.0 引擎测试：起手 / 净产出 / 城镇 / 混合蓝图 / 停用 / 任务 / 限时 / 恶性 / 回合压力 / 30 回合 */
 const G = require('./game.js');
 
 let passed = 0;
@@ -29,24 +29,30 @@ eq(G.BLUEPRINTS.filter(d => d.labor === 0).length >= 2, true, '至少两种蓝�
 eq(G.buildingDef('market').labor, 0, '市场 0 人口');
 eq(G.buildingDef('warehouse').labor, 0, '仓库 0 人口');
 
-/* 1.2 净产出：1 人占用 = 3.55 负向产出；基础净 +2.45，蓝图净 +4.45 */
+/* 1.2 净产出：1 人占用 = 6.5 负向产出；基础净 -0.5，蓝图净 +1.5 */
 function outSum(d) {
   return Object.keys(d.out || {}).reduce(function (sum, k) { return sum + d.out[k]; }, 0);
 }
 function extraSum(d) {
   return Object.keys(d.extra || {}).reduce(function (sum, k) { return sum + d.extra[k]; }, 0);
 }
-near(G.OCCUPANCY_COST, 3.55, '一人八项需求合计 3.55');
+near(G.OCCUPANCY_COST, 6.5, '一人八项需求合计 6.5（四项高阶各 1）');
+['clothes', 'furniture', 'medicine', 'education'].forEach(function (k) {
+  eq(G.resource(k).demand, 1, '高阶资源人均需求 1：' + G.resource(k).name);
+});
 eq(G.buildingNet(G.buildingDef('market')), null, '市场 0 劳力无净产出');
 eq(G.buildingNet(G.buildingDef('warehouse')), null, '仓库 0 劳力无净产出');
 G.BASE_BUILDINGS.forEach(function (d) {
-  near(G.buildingNet(d), 2.45, '基础生产建筑净产出 +2.45：' + d.name);
+  near(G.buildingNet(d), -0.5, '基础生产建筑净产出 -0.5：' + d.name);
 });
 G.BLUEPRINTS.filter(function (d) { return d.labor > 0; }).forEach(function (d) {
-  near(G.buildingNet(d), 4.45, '蓝图净产出 +4.45：' + d.name);
+  near(G.buildingNet(d), 1.5, '蓝图净产出 +1.5：' + d.name);
 });
-['clothes', 'furniture', 'pharma', 'school', 'textile', 'workshop', 'pharm2', 'academy', 'herb', 'medschool'].forEach(function (id) {
-  ok(G.buildingNet(G.buildingDef(id)) > 0, '高阶建筑净产出为正：' + G.buildingDef(id).name);
+['clothes', 'furniture', 'pharma', 'school'].forEach(function (id) {
+  near(G.buildingNet(G.buildingDef(id)), -0.5, '高阶基础建筑净产出 -0.5：' + G.buildingDef(id).name);
+});
+['textile', 'workshop', 'pharm2', 'academy', 'herb', 'medschool'].forEach(function (id) {
+  near(G.buildingNet(G.buildingDef(id)), 1.5, '高阶蓝图净产出 +1.5：' + G.buildingDef(id).name);
 });
 var basicPairs = { greenhouse: 'farm', ranch: 'farm', wind: 'plant', deepwell: 'well' };
 Object.keys(basicPairs).forEach(function (bpId) {
@@ -344,6 +350,26 @@ ok(!!ft && typeof ft.sat === 'number', '接取后预测可用');
 ok(ft.delta <= 0, '开垦占用食物，接取后预测下降');
 eq(G.getState().turn, 1, '接取预测不推进真实回合');
 eq(G.getState().board.length, 5, '接取预测不移除真实任务');
+
+/* 12.1 完成回合估算：其他任务先完成时，奖励队列不能误报“无法完成” */
+let se = G.newGame(2);
+G.chooseBlueprint(se.pendingDraw.options[0]);
+se.active = [
+  { uid: 'est-a', defId: 'irrigate', spawnTurn: 1, progress: 0, aReleased: false },
+  { uid: 'est-b', defId: 'reclaim', spawnTurn: 1, progress: 0, aReleased: false }
+];
+let estB = G.estimateTaskFinish('est-b');
+eq(estB.finishTurn, 7, '另一任务完成并进奖励队列后，目标仍估算 T7');
+eq(estB.late, false, '奖励队列不再导致误报无法完成');
+
+/* 12.2 恰好在 T30 完成不应标红 */
+let sEndEst = G.newGame(3);
+G.chooseBlueprint(sEndEst.pendingDraw.options[0]);
+sEndEst.turn = 28;
+sEndEst.active = [{ uid: 'est-t30', defId: 'irrigate', spawnTurn: 1, progress: 0, aReleased: false }];
+let estT30 = G.estimateTaskFinish('est-t30');
+eq(estT30.finishTurn, 30, 'T30 完成估算为 T30');
+eq(estT30.late, false, 'T30 完成不标为无法完成');
 
 eq(G.buildingDef('wind').labor, 1, '风电站 1 劳力');
 eq(G.buildingDef('wind').out.power, 8, '风电站 8 电');
