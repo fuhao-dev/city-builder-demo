@@ -1,4 +1,4 @@
-/* 城建设计局 · v3.9.0 界面 */
+/* 城建设计局 · v3.9.1 界面 */
 (function () {
   'use strict';
 
@@ -12,6 +12,7 @@
   var buildPreviewId = null;
   var drawPick = [];
   var drawKey = null;
+  var modalHidden = false;
 
   var BP_NOTES = {
     greenhouse: '食物专精：单座供给 8，省 1 槽',
@@ -77,6 +78,29 @@
   function defOfTask(t) { return G.taskDef(t.defId); }
   function defOfBuilding(b) { return G.buildingDef(b.defId); }
   function resName(key) { return G.resource(key) ? G.resource(key).name : key; }
+  function round2(n) { return Math.round(n * 100) / 100; }
+  function taskOccText(def, t, active) {
+    var c = G.compute();
+    var per = (c && c.per) || [];
+    return Object.keys(def.occ || {}).map(function (k) {
+      var p = null;
+      for (var i = 0; i < per.length; i++) if (per[i].key === k) p = per[i];
+      var supply = p ? p.sup : 0;
+      var occupied = p ? p.occ : 0;
+      /* 当前任务已计入 occ 时先扣除，再按公式“共计 − 已占用 − 本任务占用”加回；
+         未接取的恶性任务当前计入的是出生负担 A，也要先换成占用 B。 */
+      if (active) occupied = round2(occupied - (def.occ[k] || 0));
+      else if (def.type === 'malignant' && !t.aReleased && def.burdenA) {
+        occupied = round2(occupied - (def.burdenA[k] || 0));
+      }
+      var left = round2(supply - occupied - (def.occ[k] || 0));
+      var tag = left < 0
+        ? '<span class="tc-lack">缺 ' + fmt1(-left) + '</span>'
+        : '<span class="tc-surplus">余 ' + fmt1(left) + '</span>';
+      return resName(k) + ' ' + def.occ[k] + '（' + tag + '）';
+    }).join('、');
+  }
+
   function occText(occ) {
     if (!occ) return '无';
     var keys = Object.keys(occ);
@@ -189,7 +213,11 @@
       var supCls = np ? (np.sup > p.sup ? ' up' : np.sup < p.sup ? ' down' : '') : '';
       var advPct = c.advancedOutputPct == null ? 100 : c.advancedOutputPct;
       var advWarn = p.group === 'advanced' && c.advancedShort > 0;
-      return '<article class="res-card ' + cls + full + barOver + short + '" title="供给 ' + barP.sup + ' / 占用 ' + barP.occ + ' / 需求 ' + barP.dem + (shortDem > 0 ? ' / 缺口 ' + Math.round(shortDem * 100) / 100 : '') + '">' +
+      var extraSup = round2(barP.sup - barP.occ - barP.dem);
+      var extraCls = extraSup < 0 ? ' neg' : extraSup > 0 ? ' pos' : '';
+      var extraLabel = extraSup < 0 ? '缺口' : '额外供给';
+      var extraNum = extraSup < 0 ? fmt1(-extraSup) : (extraSup > 0 ? '+' : '') + fmt1(extraSup);
+      return '<article class="res-card ' + cls + full + barOver + short + '" title="额外供给 = 提供 ' + barP.sup + ' − 占用 ' + barP.occ + ' − 需求 ' + barP.dem + '；供给 ' + barP.sup + ' / 占用 ' + barP.occ + ' / 需求 ' + barP.dem + (shortDem > 0 ? ' / 基础需求缺口 ' + Math.round(shortDem * 100) / 100 : '') + '">' +
         '<div class="res-top"><span class="res-icon">' + p.icon + '</span>' +
         '<span class="res-name">' + p.name + '</span>' +
         '<span class="res-tag">' + (p.group === 'advanced' ? '高级' : '基础') + '</span></div>' +
@@ -199,6 +227,7 @@
         '<span class="rf-label">' + nextLabel + '</span><b class="res-next' + supCls + '">' + (np ? np.sup : '—') + '</b>' +
         '<span class="res-sub">/ 需 ' + (np ? np.dem : p.dem) + '</span>' +
         '</div>' +
+        '<div class="res-extra' + extraCls + '"><span>' + extraLabel + '</span><b>' + extraNum + '</b><small>/ 回合</small></div>' +
         '<div class="res-scoreline">满足 <b>' + fmt1(p.score) + '</b>' +
         '<span class="res-arrow">→</span><b class="res-next' + deltaCls + '">' + (np ? fmt1(np.score) : '—') + '</b></div>' +
         '<div class="bar res-bar' + barOver + short + '">' +
@@ -391,7 +420,7 @@
         return '<article class="task-card ' + d.type + (blocked ? ' blocked' : '') + '">' +
           '<div class="tc-top"><b>' + d.name + '</b><span class="badge ' + d.type + '">' + typeLabel(d.type) + '</span>' +
           '<span class="tc-dur">' + d.duration + ' 回合</span></div>' +
-          '<div class="tc-occ">' + occLabel + '：' + occText(d.occ) + '</div>' +
+          '<div class="tc-occ" title="余量 = 供给 − 已占用 − 本任务占用；缺 X 为接取后缺口">' + occLabel + '：' + taskOccText(d, t, false) + '</div>' +
           '<div class="tc-reward">' + rewardText(d) + '</div>' +
           extra +
           '<div class="tc-foot"><span class="tc-sat' + previewCls + '">接取后预计满意度 ' +
@@ -424,7 +453,7 @@
           '<div class="tc-top"><b>' + d.name + '</b><span class="badge">进行中</span>' +
           '<span class="tc-dur">' + t.progress + ' / ' + d.duration + '</span></div>' +
           '<div class="bar"><i style="width:' + pct + '%"></i></div>' +
-          '<div class="tc-occ">' + occLabel + '：' + occText(d.occ) + '</div>' +
+          '<div class="tc-occ" title="余量 = 供给 − 已占用 − 本任务占用；当前进行中的任务先扣除自身占用">' + occLabel + '：' + taskOccText(d, t, true) + '</div>' +
           '<div class="tc-reward">完成奖励：' + rewardText(d) + '</div>' +
           (late ? '<div class="tc-deadline urgent">本局剩余回合不足：预计 T' + finishTurn + ' 完成，最终 T' + G.MAX_TURNS + '</div>' : '') +
           '<div class="tc-foot"><span class="tc-sat' + (late ? ' neg' : '') + '">' + foot + '</span>' +
@@ -465,6 +494,7 @@
       '<div class="intro-goal">目标：30 回合累计声望，<b>最终得分只看累计声望</b>。</div>' +
       '<ul>' +
       '<li><b>资源条</b>：总长度 = 需求 + 占用；金色段为任务占用，青色/蓝色段为已覆盖需求，红色斜纹段为供给缺口；满足分改为文字。</li>' +
+      '<li><b>资源余量</b>：资源卡大字显示“额外供给 / 缺口”，口径为提供 − 占用 − 需求；负数表示满足需求后仍缺的量。</li>' +
       '<li><b>满意度</b> = 八项资源满足分 − 人口惩罚 − 赤字 ' + G.DEFICIT + ' − 回合压力。&lt;0 掉人口；0–19.9 稳定、不加声望；20–29.9 声望 +1，之后每 +10 再 +1（最高 +5）。</li>' +
       '<li><b>超额减速</b>：同一资源占用超过供给时，相关任务进度变慢：超额 1 为 0.8 速、2 为 0.6 速、3 及以上为 0.5 速。集中叠接同资源会拖慢整批任务。</li>' +
       '<li><b>高级减产</b>：低阶资源每缺 1 项，高级产出 -25%；缺 2 项 -50%，缺 3 项 -75%，四项全缺停产。部分减产仍按原高级投入计算，停产时才暂停额外投入。</li>' +
@@ -473,8 +503,8 @@
       '<li><b>净产出</b>：1 劳力会占用 1 人，其八项需求合计 ' + G.OCCUPANCY_COST + '（四项高阶各 1），作为该建筑的负向产出；额外消耗也从产出中扣除。基础生产建筑满产净 ' + fmtNet(G.buildingNet(G.buildingDef('farm'))) + '，蓝图满产净 ' + fmtNet(G.buildingNet(G.buildingDef('wind'))) + '，建造卡会直接标出。净产出只用于横向比较，实际供需仍按产出与人口需求分别计算。</li>' +
       '<li><b>城镇升级</b>：当前人口达到 P6 / P9 / P12 / P15 时，可手动升级城镇；升级消耗本回合建造行动，不花金钱、不占建筑位、不降级。每次升级从 5 张蓝图中选 2 张。</li>' +
       '<li><b>建造预览</b>：点击建筑卡先预览；确认后才扣钱/占劳力。预览列出资源变化、满意度与具体高级减产原因。</li>' +
-      '<li><b>任务</b> 开局 5 张，T' + G.REFRESH.join('/T') + ' 各刷新 3 张；接取前每种占用资源都必须有正余量，0 产出不能接。任务卡会提前显示「接取后预计完成回合」，已计入接取后的同资源超额减速；完成后二选一：金钱+人口，或金钱+资源供给，选择前不能继续。</li>' +
-      '<li><b>蓝图</b> 开局 3 选 1；之后只通过城镇升级获得（每次 5 选 2）；声望不再给蓝图。蓝图不额外花建造行动，但建造仍花钱/劳力。</li>' +
+      '<li><b>任务</b> 开局 5 张，T' + G.REFRESH.join('/T') + ' 各刷新 3 张；接取前每种占用资源都必须有正余量，0 产出不能接。任务卡会提前显示「接取后预计完成回合」，已计入接取后的同资源超额减速；占用行会标出接取后“余 X / 缺 X”（供给 − 已占用 − 本任务占用）。完成后二选一：金钱+人口，或金钱+资源供给，选择前不能继续；选择弹窗可隐藏查看资源。</li>' +
+      '<li><b>蓝图</b> 开局 3 选 1；之后只通过城镇升级获得（每次 5 选 2）；声望不再给蓝图。蓝图不额外花建造行动，但建造仍花钱/劳力。蓝图选择弹窗可隐藏查看资源。</li>' +
       '</ul></div>';
   }
 
@@ -486,13 +516,15 @@
       '<p><b>超额减速</b>：同一资源被任务占用超过供给时，相关任务进度变慢：超额 1 → 0.8 速，2 → 0.6 速，3+ → 0.5 速。任务仍会推进，但叠接同资源会拖慢整批任务，奖励不再免费。</p>' +
       '<p><b>回合压力</b>：T1–6 为 0，T7 起线性增加，T30 为 −5；无论基础满意度正负都扣。后期想拿声望，需要比前期更高的基础供给。</p>' +
       '<p><b>资源条</b>：彩条不再表示满意度，总长度 = 需求 + 占用；金色为任务占用，青色/蓝色为已覆盖需求，红色斜纹为供给缺口。文字显示满足分，悬停可看供给、占用、需求与缺口。</p>' +
+      '<p><b>资源余量</b>：资源卡大字“额外供给 / 缺口”= 提供 − 占用 − 需求；正数为满足需求后的额外供给，负数为仍缺的量（按缺口绝对值显示）。</p>' +
       '<p><b>资源</b>：卡面显示「当前 → 下回合预测」。下回合预测包含已建建筑、任务占用和下一回合会完成的任务；建造后立即变化。</p>' +
       '<p><b>高级减产</b>：高级建筑（衣服 / 家具 / 药品 / 教育）需要基础资源。食物、原料、电力、水每缺 1 项，高级产出 -25%；缺 2 项 -50%，缺 3 项 -75%，四项全缺停产。部分减产仍按原高级投入计算，停产时才暂停额外基础消耗；资源卡会标「低阶不足·产出 N%」。</p>' +
       '<p><b>劳力</b>：所有建筑最多占 1 人口；市场、仓库等部分蓝图 0 人口。启用建筑会占用人口，已占用 &gt; 人口时不能进入下回合。城市面板按类型用 − / + 调整启用数量，停用会同时停掉供给和额外消耗。</p>' +
       '<p><b>净产出</b>：把占用人口视为负向产出。1 劳力占用 1 人，八项需求合计 ' + G.OCCUPANCY_COST + '；满产净产出 = 产出总和 − 额外消耗总和 − 劳力 × ' + G.OCCUPANCY_COST + '。基础生产建筑 ' + fmtNet(G.buildingNet(G.buildingDef('farm'))) + '，蓝图 ' + fmtNet(G.buildingNet(G.buildingDef('wind'))) + '；实际高级产出还会受低阶短缺减产。</p>' +
       '<p><b>建造预览</b>：点击建筑卡先打开预览，确认后才真正建造。预览显示金钱/劳力/满意度变化、资源供需变化，以及高级建筑当前和建造后的具体减产原因（哪项低阶资源、可用/需求/缺口）。</p>' +
       '<p><b>城镇升级</b>：当前人口达到 P6 / P9 / P12 / P15 时可手动升级；每级消耗本回合建造行动，不花金钱、不占 24 座建筑上限、不降级。每次升级弹出 5 选 2 蓝图。声望不再给蓝图。</p>' +
-      '<p><b>任务</b>：开局 5 张，T' + G.REFRESH.join('/T') + ' 各刷新 3 张。任务栏不限张数；限时任务过期消失；恶性任务不接也占出生负担 A。接取前看「接取后预计满意度」、变化量和「接取后预计完成回合」；完成回合已经计入接取后新增占用造成的超额减速，预计超过 T30 会提前标红。接取条件是每种占用资源当前供给 &gt; 已占用，0 产出资源不能接。完成后在「金钱+人口」和「金钱+资源供给」中二选一，选择前不能继续。</p>' +
+      '<p><b>任务</b>：开局 5 张，T' + G.REFRESH.join('/T') + ' 各刷新 3 张。任务栏不限张数；限时任务过期消失；恶性任务不接也占出生负担 A。接取前看「接取后预计满意度」、变化量和「接取后预计完成回合」；占用行会标出每种资源接取后的“余 X / 缺 X”（供给 − 已占用 − 本任务占用）。完成回合已经计入接取后新增占用造成的超额减速，预计超过 T30 会提前标红。接取条件是每种占用资源当前供给 &gt; 已占用，0 产出资源不能接。完成后在「金钱+人口」和「金钱+资源供给」中二选一，选择前不能继续。</p>' +
+      '<p><b>选择弹窗</b>：任务奖励和蓝图选择弹窗都可以点“隐藏窗口，查看资源与人口”，右下角“返回选择”恢复；隐藏期间不会丢失奖励或蓝图选择状态。</p>' +
       '<p><b>终局</b>：第 30 回合按钮变为「结算本局」；接取前若预计完成回合超过 T' + G.MAX_TURNS + '，任务卡会标红提醒。</p>' +
       '<button class="btn primary" data-close-help="1" type="button">知道了</button>' +
       '</div>';
@@ -547,7 +579,8 @@
       '<span class="reward-sub">永久供给增加，不占建筑与劳力</span>' +
       '<span class="reward-common">金 +' + offer.money + ' · 声望 +' + offer.rep + '</span>' +
       '<span class="reward-btn">选择资源</span></button>' +
-      '</div>' + more;
+      '</div>' + more +
+      '<div class="modal-actions modal-view-actions"><button class="btn ghost" data-hide-modal="1" type="button">隐藏窗口，查看资源与人口</button></div>';
   }
 
   function buildPreviewHtml(id) {
@@ -599,6 +632,15 @@
   function renderModal(S, best) {
     var modal = $('modal');
     var card = $('modalCard');
+    var hasChoice = !!(S.rewardQueue && S.rewardQueue.length) || !!S.pendingDraw;
+    if (showHelp || buildPreviewId || !hasChoice) modalHidden = false;
+    if (modalHidden && hasChoice) {
+      card.innerHTML = '';
+      modal.classList.add('hidden');
+      $('btnShowModal').classList.remove('hidden');
+      return;
+    }
+    $('btnShowModal').classList.add('hidden');
     if (showHelp) {
       card.innerHTML = helpHtml();
       modal.classList.remove('hidden');
@@ -657,6 +699,7 @@
           '<button class="btn primary" data-confirm-draw="1" type="button"' +
           (drawPick.length === pickCount ? '' : ' disabled') + '>确认选择</button></div>';
       }
+      html += '<div class="modal-actions modal-view-actions"><button class="btn ghost" data-hide-modal="1" type="button">隐藏窗口，查看资源与人口</button></div>';
       card.innerHTML = html;
       modal.classList.remove('hidden');
       return;
@@ -742,6 +785,7 @@
     var r = G.chooseReward(choice);
     if (!r.ok) toast(r.error);
     else {
+      modalHidden = false;
       var o = r.offer;
       var supTxt = Object.keys(o.sup || {}).map(function (k) { return resName(k) + ' +' + o.sup[k]; }).join('、');
       toast(choice === 'pop'
@@ -754,6 +798,7 @@
   function pick(id) {
     var S = G.getState();
     if (!S || !S.pendingDraw) return;
+    modalHidden = false;
     if ((S.pendingDraw.count || 1) === 1) {
       var r = G.chooseBlueprint(id);
       if (!r.ok) toast(r.error);
@@ -774,6 +819,7 @@
   function confirmDraw() {
     var S = G.getState();
     if (!S || !S.pendingDraw) return;
+    modalHidden = false;
     var r = G.chooseBlueprints(drawPick);
     if (!r.ok) {
       toast(r.error);
@@ -795,6 +841,7 @@
   function newGame(seed) {
     showHelp = false;
     buildPreviewId = null;
+    modalHidden = false;
     drawPick = [];
     drawKey = null;
     taskFilter = 'all';
@@ -816,7 +863,8 @@
   function init() {
     $('btnNext').addEventListener('click', nextTurn);
     $('btnRestart').addEventListener('click', function () { restart(false); });
-    $('btnHelp').addEventListener('click', function () { buildPreviewId = null; showHelp = true; render(); });
+    $('btnHelp').addEventListener('click', function () { buildPreviewId = null; showHelp = true; modalHidden = false; render(); });
+    $('btnShowModal').addEventListener('click', function () { modalHidden = false; render(); });
 
     $('buildList').addEventListener('click', function (e) {
       var btn = e.target.closest('[data-build]');
@@ -849,6 +897,8 @@
       render();
     });
     $('modalCard').addEventListener('click', function (e) {
+      var hideView = e.target.closest('[data-hide-modal]');
+      if (hideView) { modalHidden = true; render(); return; }
       var helpClose = e.target.closest('[data-close-help]');
       if (helpClose) { showHelp = false; render(); return; }
       var buildClose = e.target.closest('[data-close-build]');
