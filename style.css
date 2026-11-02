@@ -87,6 +87,54 @@ body {
 .empty { color: var(--muted); font-size: 10px; text-align: center; padding: 16px 10px; border: 1px dashed var(--line); border-radius: 10px; line-height: 1.7; }
 .empty.small { padding: 10px; font-size: 9px; }
 
+/* ---------------- construction goals ---------------- */
+.goal-panel { grid-column: 1 / -1; border-color: #37505b; padding: 12px 15px; }
+.goal-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 9px; }
+.goal-heading h2 { font-size: 13px; margin: 0; color: var(--gold); }
+.goal-state { font-size: 10px; color: var(--muted); }
+.goal-state.met, .goal-condition.met .goal-check, .scenario-record.cleared, .end-result.cleared { color: var(--teal); }
+.goal-conditions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.goal-condition { display: flex; align-items: center; gap: 8px; padding: 9px 11px; background: rgba(26, 39, 64, .7); border: 1px solid var(--line); border-radius: 9px; }
+.goal-condition.met { border-color: rgba(87, 224, 192, .35); }
+.goal-check { color: var(--gold); font-size: 14px; }
+.goal-condition > div { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; min-width: 0; }
+.goal-condition span { font-size: 10px; }
+.goal-condition b { font-size: 13px; font-variant-numeric: tabular-nums; }
+.goal-condition b small { color: var(--muted); font-size: 10px; font-weight: 400; }
+.goal-gap { margin-left: auto; font-size: 9px; color: var(--muted); white-space: nowrap; }
+.goal-note { font-size: 10px; line-height: 1.6; color: var(--muted); margin: 8px 0 0; }
+.scenario-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.scenario-card { display: flex; flex-direction: column; align-items: stretch; position: relative; text-align: left; font: inherit; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; cursor: pointer; }
+.scenario-card:hover, .scenario-card:focus-visible { border-color: var(--gold); outline: 2px solid rgba(245, 194, 107, .25); outline-offset: 2px; }
+.scenario-tag { font-size: 10px; color: var(--gold); padding-right: 30px; }
+.scenario-icon { position: absolute; top: 14px; right: 14px; font-size: 24px; }
+.scenario-card h3 { font-size: 17px; margin: 12px 30px 8px 0; }
+.scenario-card p { font-size: 11px; line-height: 1.6; color: var(--muted); margin: 0 0 8px; }
+.scenario-card ul { font-size: 11px; line-height: 1.7; padding-left: 17px; margin: auto 0 10px; }
+.scenario-record { font-size: 10px; color: var(--muted); margin-bottom: 9px; }
+.scenario-card .pick-btn { text-align: center; }
+.opening-goals, .end-goals { margin-bottom: 14px; }
+.end-result { margin: 12px 0; color: var(--gold); font-size: 21px; }
+.setup-goal { font-size: 11px; line-height: 1.7; color: var(--gold); margin: 0 0 16px; }
+.setup-group { border: 0; padding: 0; margin: 0 0 18px; min-width: 0; }
+.setup-group legend { font-size: 12px; font-weight: 700; margin-bottom: 9px; }
+.setup-options { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; }
+.setup-options.difficulties { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.setup-option { cursor: pointer; font: inherit; text-align: left; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--ink); padding: 12px; }
+.setup-option b { display: block; font-size: 12px; margin-bottom: 7px; }
+.setup-option span { display: block; color: var(--muted); font-size: 10px; line-height: 1.6; }
+.setup-option.selected { border-color: var(--teal); background: rgba(87,224,192,.08); }
+.setup-option:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.setup-summary { display: flex; flex-direction: column; gap: 7px; padding: 13px; border-radius: 10px; border: 1px solid var(--line); background: rgba(0,0,0,.12); font-size: 11px; }
+.setup-summary b { color: var(--teal); font-size: 13px; }
+.setup-summary span { color: var(--muted); }
+.setup-details { font-size: 11px; margin-top: 14px; }
+.setup-details summary { cursor: pointer; color: var(--gold); padding: 4px 0; }
+.setup-table { width: 100%; border-collapse: collapse; font-size: 10px; margin-top: 8px; }
+.setup-table td, .setup-table th { text-align: left; padding: 8px 5px; border-bottom: 1px solid var(--line); }
+.setup-table th { color: var(--muted); font-weight: 400; }
+.end-config { color: var(--muted); font-size: 11px; margin-top: 8px; }
+
 /* ---------------- resources ---------------- */
 .res-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .res-card {
@@ -424,6 +472,11 @@ body {
   .build-list { max-height: 420px; }
 }
 @media (max-width: 900px) {
+  .setup-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .scenario-grid { grid-template-columns: 1fr; }
+  .scenario-card { padding: 14px; }
+  .goal-conditions { grid-template-columns: 1fr; }
+  .goal-heading { align-items: flex-start; }
   .layout { grid-template-columns: 1fr; padding: 10px 10px 94px; }
   .col-right { grid-template-columns: 1fr; }
   .task-panel { max-height: none; }

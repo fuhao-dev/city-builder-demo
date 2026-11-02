@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>城建设计局 · 30 回合经营 v3.9.3</title>
-  <link rel="stylesheet" href="style.css?v=393">
+  <title>城建设计局 · 建设关卡 v3.12.0</title>
+  <link rel="stylesheet" href="style.css?v=3120">
 </head>
 <body>
   <header class="hud">
@@ -12,7 +12,7 @@
       <span class="logo">🏙</span>
       <div>
         <h1>城建设计局</h1>
-        <p>30 回合 · 最终得分 = 累计声望</p>
+        <p id="gameSubtitle">30 回合 · 达成建设目标才通关</p>
       </div>
     </div>
     <div class="hud-stats">
@@ -29,11 +29,15 @@
   </header>
 
   <main class="layout">
+    <section class="panel goal-panel" id="goalPanel" aria-label="本关建设目标">
+      <div class="goal-heading"><h2>建设目标</h2><span class="goal-state">请选择关卡</span></div>
+      <p class="goal-note">选择关卡后查看本局建设要求。</p>
+    </section>
     <div class="col col-left">
       <section class="panel res-panel">
         <div class="panel-head">
           <h2>资源</h2>
-          <span class="hint">上回合 → 下回合预测 · 建造后更新</span>
+          <span class="hint">当前 → 下回合预测 · 建造后更新</span>
         </div>
         <div id="resGrid" class="res-grid"></div>
         <div id="satMath" class="sat-math"></div>
@@ -86,7 +90,7 @@
 
   <footer class="action-bar">
     <button id="btnNext" class="btn primary" type="button">进入下回合 →</button>
-    <button id="btnRestart" class="btn ghost" type="button">新游戏</button>
+    <button id="btnRestart" class="btn ghost" type="button">选关</button>
     <button id="btnHelp" class="btn ghost" type="button">规则</button>
     <span class="save-note" id="saveNote">自动存档</span>
     <div class="action-hint" id="actionHint"></div>
@@ -98,7 +102,8 @@
   <button id="btnShowModal" class="btn primary show-modal hidden" type="button">返回选择 · 资源/人口</button>
   <div id="toast" class="toast"></div>
 
-  <script src="game.js?v=393"></script>
-  <script src="ui.js?v=393"></script>
+  <script src="game.js?v=3120"></script>
+  <script src="progress.js?v=3120"></script>
+  <script src="ui.js?v=3120"></script>
 </body>
 </html>

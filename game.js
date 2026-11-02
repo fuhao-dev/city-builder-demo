@@ -1,5 +1,5 @@
 /*
- * 城建设计局 · 局内 v3.9.3 引擎
+ * 城建设计局 · v3.12.0 引擎
  * 纯逻辑、无 DOM，可在 Node 里直接 require 测试。
  *
  * 核心：30 回合 / 每回合 1 次建造或城镇升级 / 8 资源 / 人口常驻占用劳力 /
@@ -26,6 +26,97 @@
   var NODES = [];
   var REFRESH = [6, 11, 16, 21, 26];
   var START_TASKS = ['reclaim', 'waterworks', 'mining', 'relief', 'prospect'];
+
+  var DIFFICULTIES = [
+    { id: 'normal', name: '普通', description: '采用标准人口需求。', populationDemandMultiplier: 1 },
+    { id: 'hard', name: '困难', description: '人口的八项资源需求 ×1.15。', populationDemandMultiplier: 1.15 }
+  ];
+  var BUFFS = [
+    { id: 'none', name: '无加成', description: '按标准城市开局。', effects: {} },
+    { id: 'preparation', name: '建设筹备', description: '初始金钱 +60。', effects: { startingMoney: 60 } },
+    { id: 'food_aid', name: '粮食援助', description: '基础食物供给 +2／回合。', effects: { baseSupply: { food: 2 } } },
+    { id: 'water_saving', name: '节水设施', description: '人口用水需求 ×0.9。', effects: { populationDemandMultiplier: { water: 0.9 } } }
+  ];
+  function findDefinition(defs, id) {
+    for (var i = 0; i < defs.length; i++) if (defs[i].id === id) return defs[i];
+    return null;
+  }
+  function normalizeRunConfig(config) {
+    var c = config == null ? {} : config;
+    if (typeof c !== 'object' || Array.isArray(c) || Object.keys(c).some(function (key) {
+      return key !== 'difficultyId' && key !== 'buffId';
+    })) throw new Error('开局配置无效');
+    var difficultyId = c.difficultyId === undefined ? 'normal' : c.difficultyId;
+    var buffId = c.buffId === undefined ? 'none' : c.buffId;
+    if (!findDefinition(DIFFICULTIES, difficultyId)) throw new Error('未知难度');
+    if (!findDefinition(BUFFS, buffId)) throw new Error('未知 BUFF');
+    return { difficultyId: difficultyId, buffId: buffId };
+  }
+  function runModifiers(config) {
+    var c = normalizeRunConfig(config === undefined ? state && state.runConfig : config);
+    var difficulty = findDefinition(DIFFICULTIES, c.difficultyId);
+    var effects = findDefinition(BUFFS, c.buffId).effects;
+    var populationDemand = {}, baseSupply = {}, cost = 0;
+    RES.forEach(function (r) {
+      // Keep full rate precision; round the final city demand once, after population multiplication.
+      var multiplier = difficulty.populationDemandMultiplier * ((effects.populationDemandMultiplier || {})[r.key] || 1);
+      populationDemand[r.key] = Number((r.demand * multiplier).toFixed(8));
+      baseSupply[r.key] = (effects.baseSupply || {})[r.key] || 0;
+      cost += populationDemand[r.key];
+    });
+    return { config: c, startingMoney: START_MONEY + (effects.startingMoney || 0),
+      populationDemand: populationDemand, baseSupply: baseSupply, occupancyCost: Number(cost.toFixed(8)) };
+  }
+
+  var SCENARIOS = [
+    { id: 'town', name: '安居小镇', icon: '🏘', tag: '教学',
+      description: '补足基础供给，接纳新人口，让城市安稳运转。',
+      requirements: [
+        { key: 'pop', label: '人口', target: 9 },
+        { key: 'sat', label: '满意度', target: 20 }
+      ] },
+    { id: 'agriculture', name: '农业基地', icon: '🌾', tag: '农业专精',
+      description: '扩展农业供给，在满足城市与任务需求后保持充足余量。',
+      requirements: [
+        { key: 'pop', label: '人口', target: 15 },
+        { key: 'balance', resource: 'food', label: '食物净余量', target: 18 },
+        { key: 'sat', label: '满意度', target: 35 }
+      ] },
+    { id: 'education', name: '学府之城', icon: '🎓', tag: '教育专精',
+      description: '发展教育，配好电力和水，在满足城市需求后提供额外教育。',
+      requirements: [
+        { key: 'pop', label: '人口', target: 12 },
+        { key: 'balance', resource: 'education', label: '教育净余量', target: 4 },
+        { key: 'sat', label: '满意度', target: 50 }
+      ] },
+    { id: 'industry', name: '工业重镇', icon: '🏭', tag: '产业配套',
+      description: '平衡工业投入，在满足城市与任务需求后同时留足原料和电力。',
+      requirements: [
+        { key: 'pop', label: '人口', target: 15 },
+        { key: 'balance', resource: 'material', label: '原料净余量', target: 12 },
+        { key: 'balance', resource: 'power', label: '电力净余量', target: 12 },
+        { key: 'sat', label: '满意度', target: 50 }
+      ] },
+    { id: 'health', name: '康养之城', icon: '💊', tag: '民生品质',
+      description: '保障制药所需的基础资源，用充足药品与完善民生提高生活品质。',
+      requirements: [
+        { key: 'pop', label: '人口', target: 12 },
+        { key: 'balance', resource: 'medicine', label: '药品净余量', target: 4 },
+        { key: 'sat', label: '满意度', target: 65 }
+      ] },
+    { id: 'metropolis', name: '繁荣都会', icon: '🌆', tag: '综合建设',
+      description: '接纳更多居民，兼顾生活品质，让四项基础资源全部收支平衡。',
+      requirements: [
+        { key: 'pop', label: '人口', target: 20 },
+        { key: 'sat', label: '满意度', target: 65 },
+        { key: 'balance', resource: 'food', label: '食物净余量', target: 0 },
+        { key: 'balance', resource: 'material', label: '原料净余量', target: 0 },
+        { key: 'balance', resource: 'power', label: '电力净余量', target: 0 },
+        { key: 'balance', resource: 'water', label: '水净余量', target: 0 }
+      ] }
+  ];
+  var SCENARIO_BY_ID = Object.create(null);
+  SCENARIOS.forEach(function (s) { SCENARIO_BY_ID[s.id] = s; });
 
   var RES = [
     { key: 'food',      name: '食物', icon: '🌾', group: 'basic',    base: 3, demand: 1.0 },
@@ -77,13 +168,13 @@
   /* 一人八项需求总和，用于把“占用人口”折算成负向产出。 */
   var OCCUPANCY_COST = round2(RES.reduce(function (sum, r) { return sum + r.demand; }, 0));
 
-  function buildingNet(def) {
+  function buildingNet(def, config) {
     if (!def || !def.out || !Object.keys(def.out).length) return null;
     var gross = 0;
     var extra = 0;
     Object.keys(def.out).forEach(function (k) { gross += def.out[k]; });
     Object.keys(def.extra || {}).forEach(function (k) { extra += def.extra[k]; });
-    return round2(gross - extra - (def.labor || 0) * OCCUPANCY_COST);
+    return round2(gross - extra - (def.labor || 0) * runModifiers(config).occupancyCost);
   }
 
   function isAdvancedBuilding(def) {
@@ -188,6 +279,27 @@
     }
     if (pop > 25) sum += (pop - 25) * 1.5;
     return round2(sum);
+  }
+
+  /* 目标始终使用完整供需快照；不改声望、不锁定提前达标的状态。 */
+  function evaluateScenario(id, c) {
+    var def = SCENARIO_BY_ID[id];
+    if (!def) return null;
+    var conditions = def.requirements.map(function (r) {
+      var current = r.key === 'pop' ? c.pop : r.key === 'sat' ? c.sat :
+        round2(c.supply[r.resource] - c.demand[r.resource] - c.occ[r.resource]);
+      return {
+        key: r.key, resource: r.resource || null, label: r.label,
+        current: current, target: r.target, met: current >= r.target,
+        shortfall: round2(Math.max(0, r.target - current))
+      };
+    });
+    return { id: id, name: def.name, conditions: conditions,
+      cleared: conditions.every(function (r) { return r.met; }) };
+  }
+
+  function goalStatus(c) {
+    return state && state.scenarioId ? evaluateScenario(state.scenarioId, c || compute()) : null;
   }
 
   /* ---------------- log ---------------- */
@@ -332,11 +444,12 @@
   }
 
   function compute() {
+    var modifiers = runModifiers();
     var supply = emptyRes();
     var demand = emptyRes();
     var extra = emptyRes();
 
-    RES.forEach(function (r) { supply[r.key] = r.base; });
+    RES.forEach(function (r) { supply[r.key] = r.base + modifiers.baseSupply[r.key]; });
     RES.forEach(function (r) {
       supply[r.key] = round2(supply[r.key] + (state.taskSupply[r.key] || 0));
     });
@@ -385,7 +498,7 @@
           if (r.group !== 'basic') return;
           var advancedBasic = round2((advancedOut[r.key] || 0) * advancedMultiplier);
           var available = round2(supply[r.key] + advancedBasic - (occ[r.key] || 0));
-          var need = round2(state.pop * r.demand + (extra[r.key] || 0));
+          var need = round2(state.pop * modifiers.populationDemand[r.key] + (extra[r.key] || 0));
           if (available < need) {
             shortCount += 1;
             shortReasons.push({
@@ -394,7 +507,7 @@
               available: available,
               need: need,
               gap: round2(need - available),
-              popNeed: round2(state.pop * r.demand),
+              popNeed: round2(state.pop * modifiers.populationDemand[r.key]),
               extraNeed: round2(extra[r.key] || 0)
             });
           }
@@ -422,7 +535,7 @@
     }
 
     RES.forEach(function (r) {
-      demand[r.key] = round2(state.pop * r.demand + (extra[r.key] || 0));
+      demand[r.key] = round2(state.pop * modifiers.populationDemand[r.key] + (extra[r.key] || 0));
     });
 
     var per = RES.map(function (r) {
@@ -451,6 +564,7 @@
 
     return {
       supply: supply, demand: demand, extra: extra, occ: occ, occDiscount: discount, per: per,
+      populationDemand: modifiers.populationDemand, occupancyCost: modifiers.occupancyCost,
       sum: sum, penalty: penalty, over: over,
       baseSat: baseSat, turnPressure: turnPressure,
       sat: sat, repGain: repGain, popLoss: popLoss, market: market,
@@ -752,8 +866,10 @@
     try {
       var r = endTurn();
       if (!r || !r.ok) return null;
+      var projection = copy.over ? compute() : copy.last;
+      if (copy.over) { projection.repGain = 0; projection.popLoss = 0; }
       return {
-        last: copy.last,
+        last: projection,
         final: copy.final || null,
         over: !!copy.over,
         turn: copy.turn,
@@ -778,7 +894,8 @@
       if (!a.ok) return null;
       var r = endTurn();
       if (!r || !r.ok) return null;
-      after = copy.last;
+      after = copy.over ? compute() : copy.last;
+      if (copy.over) { after.repGain = 0; after.popLoss = 0; }
     } finally {
       state = real;
     }
@@ -937,14 +1054,18 @@
       return { ok: false, error: '劳力不足：已占用 ' + used + ' / 人口 ' + state.pop + '，请先停用建筑' };
     }
     if (state.turn >= MAX_TURNS) {
+      var current = compute();
+      var goal = goalStatus(current);
       state.over = true;
       state.final = {
-        rep: state.rep, pop: state.pop, sat: state.sat,
+        rep: state.rep, pop: state.pop, sat: current.sat,
         buildings: state.buildings.length, tasksDone: state.stats.tasksDone,
         money: state.money, built: state.stats.built, popLost: state.stats.popLost,
-        level: state.townLevel
+        level: state.townLevel, scenarioId: state.scenarioId || null,
+        cleared: goal ? goal.cleared : null, goal: goal, runConfig: normalizeRunConfig(state.runConfig)
       };
-      log('30 回合结束。最终声望 ' + state.rep + '。', 'end');
+      log((goal ? goal.name + '：' + (goal.cleared ? '通关' : '未通关') + '。' : '自由经营结束。') +
+        '最终声望 ' + state.rep + '。', 'end');
       return { ok: true, over: true };
     }
     var before = state.board.length;
@@ -963,16 +1084,22 @@
 
   /* ---------------- new game ---------------- */
 
-  function newGame(seed) {
+  function newGame(seed, scenarioId, config) {
+    var selected = scenarioId === undefined ? 'town' : scenarioId;
+    if (!SCENARIO_BY_ID[selected]) throw new Error('未知关卡：' + selected);
+    var runConfig = normalizeRunConfig(config);
+    var modifiers = runModifiers(runConfig);
     var s = (seed === undefined || seed === null || seed === '') ? Math.floor(Math.random() * 1000000007) : Number(seed);
     if (!isFinite(s)) s = 1;
     s = s >>> 0;
     state = {
       version: SAVE_VERSION,
       seed: s,
+      scenarioId: selected,
+      runConfig: runConfig,
       rngState: s,
       turn: 1,
-      money: START_MONEY,
+      money: modifiers.startingMoney,
       pop: START_POP,
       rep: 0,
       sat: 0,
@@ -995,7 +1122,9 @@
     };
     START_TASKS.forEach(function (id) { addTask(id, 1); });
     startTurn();
-    log('城市开局：P5、300 金，满意度 0。先补基础供给。', 'start');
+    log(SCENARIO_BY_ID[selected].name + '开局：P5、' + modifiers.startingMoney + ' 金。' +
+      findDefinition(DIFFICULTIES, runConfig.difficultyId).name + ' · ' + findDefinition(BUFFS, runConfig.buffId).name +
+      '；T30 验收建设目标。', 'start');
     openDraw('opening', { count: 1, options: 3 });
     return state;
   }
@@ -1019,7 +1148,31 @@
         !Array.isArray(s.active) || !Array.isArray(s.unlocked)) {
       return { ok: false, error: '存档字段不完整' };
     }
+    if (s.scenarioId != null && !SCENARIO_BY_ID[s.scenarioId]) {
+      return { ok: false, error: '存档关卡无效' };
+    }
+    if (s.scenarioId == null && s.final && s.final.scenarioId != null) {
+      return { ok: false, error: '存档关卡与结算不一致' };
+    }
+    if (s.scenarioId && s.final && s.final.scenarioId !== s.scenarioId) {
+      return { ok: false, error: '存档关卡与结算不一致' };
+    }
+    var runConfig;
+    try {
+      runConfig = normalizeRunConfig(s.runConfig);
+      if (s.final && s.final.runConfig != null && JSON.stringify(normalizeRunConfig(s.final.runConfig)) !== JSON.stringify(runConfig)) {
+        return { ok: false, error: '存档开局配置与结算不一致' };
+      }
+    } catch (e) { return { ok: false, error: e.message }; }
     state = s;
+    state.runConfig = runConfig;
+    if (state.final) state.final.runConfig = normalizeRunConfig(runConfig);
+    if (state.scenarioId == null) state.scenarioId = null;
+    if (!state.scenarioId && state.final) {
+      state.final.scenarioId = null;
+      state.final.cleared = null;
+      state.final.goal = null;
+    }
     if (!state.stats) state.stats = { tasksDone: 0, built: 0, popLost: 0, townUpgrades: 0 };
     if (typeof state.stats.townUpgrades !== 'number') state.stats.townUpgrades = 0;
     if (!state.spawnedNormals) state.spawnedNormals = { 1: [], 2: [], 3: [] };
@@ -1036,6 +1189,13 @@
     importState: importState,
     forecast: forecast,
     compute: compute,
+    SCENARIOS: JSON.parse(JSON.stringify(SCENARIOS)),
+    evaluateScenario: evaluateScenario,
+    goalStatus: goalStatus,
+    DIFFICULTIES: JSON.parse(JSON.stringify(DIFFICULTIES)),
+    BUFFS: JSON.parse(JSON.stringify(BUFFS)),
+    normalizeRunConfig: normalizeRunConfig,
+    runModifiers: runModifiers,
     forecastTask: forecastTask,
     SAVE_VERSION: SAVE_VERSION,
     build: build,
