@@ -1,5 +1,5 @@
 /*
- * 城建设计局 · 局内 v3.9.2 引擎
+ * 城建设计局 · 局内 v3.9.3 引擎
  * 纯逻辑、无 DOM，可在 Node 里直接 require 测试。
  *
  * 核心：30 回合 / 每回合 1 次建造或城镇升级 / 8 资源 / 人口常驻占用劳力 /
@@ -16,8 +16,8 @@
   var DEFICIT = 13;
   var PRESSURE_MAX = 5;
   var PRESSURE_START = 6;
-  var REP_START = 20;
-  var REP_STEP = 10;
+  var REP_THRESHOLDS = [20, 35, 50, 65, 75];
+  var REP_START = REP_THRESHOLDS[0];
   var START_MONEY = 300;
   var TASK_POP_BONUS = 2;
   var SAVE_VERSION = 3;
@@ -122,9 +122,17 @@
 
   function round2(n) { return Math.round(n * 100) / 100; }
 
-  function repGainFor(sat) {
-    if (!(sat >= REP_START)) return 0;
-    return Math.min(5, 1 + Math.floor((sat - REP_START) / REP_STEP));
+  function repCapFor(pop) {
+    return pop < 12 ? 3 : pop < 15 ? 4 : 5;
+  }
+
+  function repGainFor(sat, pop) {
+    var gain = 0;
+    for (var i = 0; i < REP_THRESHOLDS.length; i++) {
+      if (!(sat >= REP_THRESHOLDS[i])) break;
+      gain++;
+    }
+    return Math.min(gain, repCapFor(pop == null ? START_POP : pop));
   }
 
   function taskStepForOver(over) {
@@ -169,7 +177,7 @@
   }
 
   function popPenalty(pop) {
-    var brackets = [[5, 1.0], [10, 1.5], [15, 2.0], [20, 2.5], [25, 3.0], [30, 3.5]];
+    var brackets = [[5, 1.0], [15, 0.5], [25, 1.0]];
     var prev = 0, sum = 0;
     for (var i = 0; i < brackets.length; i++) {
       if (pop <= prev) break;
@@ -178,7 +186,7 @@
       if (n > 0) sum += n * rate;
       prev = cap;
     }
-    if (pop > 30) sum += (pop - 30) * 4.0;
+    if (pop > 25) sum += (pop - 25) * 1.5;
     return round2(sum);
   }
 
@@ -438,7 +446,7 @@
     var turnPressure = state.turn <= PRESSURE_START ? 0 :
       round2(Math.min(PRESSURE_MAX, (state.turn - PRESSURE_START) * PRESSURE_MAX / (MAX_TURNS - PRESSURE_START)));
     var sat = round2(baseSat - turnPressure);
-    var repGain = repGainFor(sat);
+    var repGain = repGainFor(sat, state.pop);
     var popLoss = sat < 0 ? Math.min(3, 1 + Math.floor(-sat / 10)) : 0;
 
     return {
@@ -1066,7 +1074,8 @@
     PRESSURE_MAX: PRESSURE_MAX,
     PRESSURE_START: PRESSURE_START,
     REP_START: REP_START,
-    REP_STEP: REP_STEP,
+    REP_THRESHOLDS: REP_THRESHOLDS.slice(),
+    repCapFor: repCapFor,
     repGainFor: repGainFor,
     taskProgressStep: taskProgressStep,
     START_MONEY: START_MONEY,

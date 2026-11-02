@@ -1,4 +1,4 @@
-/* 局内 v3.9.2 引擎测试：起手 / 净产出 / 城镇 / 混合蓝图 / 停用 / 任务 / 限时 / 恶性 / 回合压力 / 30 回合 */
+/* 局内 v3.9.3 引擎测试：起手 / 净产出 / 城镇 / 混合蓝图 / 停用 / 任务 / 限时 / 恶性 / 回合压力 / 30 回合 */
 const G = require('./game.js');
 
 let passed = 0;
@@ -119,7 +119,7 @@ ok(G.build('plant').ok, '建电站');
 G.endTurn();
 eq(s.turn, 5, 'T5');
 near(s.sat, 42, 'T5 满意度 42');
-eq(s.rep, 6, 'T5 声望 6（T3 +1、T4 +2、T5 +3）');
+eq(s.rep, 4, 'T5 声望 4（T3 +1、T4 +1、T5 +2）');
 eq(G.laborUsed(), 4, '四基础劳力 4');
 eq(s.money, 48, 'T5 金钱 48');
 let clothesTry = G.build('clothes');
@@ -156,7 +156,7 @@ ok(badChoice.ok === false && s.money === rewardMoney, '非法奖励选择不改�
 ok(G.chooseReward('pop').ok, '选择人口奖励');
 eq(s.pop, 8, '开垦人口 +3 → P8');
 eq(s.money, 208, '开垦 +160 → 208');
-eq(s.rep, 16, 'T5 6 + T6/T7 +2、T8 +3 + 开垦 +3 = 16');
+eq(s.rep, 13, 'T5 4 + T6/T7/T8 各 +2 + 开垦 +3 = 13');
 eq(G.laborUsed(), 4, '四基础仍 4');
 ok(G.build('clothes').ok, 'P8 后服装厂落地（1 劳力）');
 eq(G.buildingDef('clothes').labor, 1, '服装厂只占 1 人口');
@@ -421,18 +421,76 @@ eq(zeroF.last.turnPressure, 5, '基础满意度 0 时 T30 也扣 5');
 eq(zeroF.last.sat, -5, '基础满意度 0 时 T30 为 -5');
 eq(zeroF.last.popLoss, 1, '基础满意度 0 时 T30 掉 1 人口');
 
-/* 12.6 声望档位：20 起才 +1，此前 0–19.9 只有稳定 */
-eq(G.repGainFor(11.9), 0, '11.9 不加声望');
-eq(G.repGainFor(12.4), 0, '12.4 不加声望');
-eq(G.repGainFor(18.4), 0, '18.4 不加声望');
-eq(G.repGainFor(19.99), 0, '19.99 不加声望');
-eq(G.repGainFor(20), 1, '20 声望 +1');
-eq(G.repGainFor(29.99), 1, '29.99 声望 +1');
-eq(G.repGainFor(30), 2, '30 声望 +2');
-eq(G.repGainFor(40), 3, '40 声望 +3');
-eq(G.repGainFor(50), 4, '50 声望 +4');
-eq(G.repGainFor(60), 5, '60 声望 +5');
-eq(G.repGainFor(70), 5, '70 封顶 +5');
+/* 12.6 人口惩罚：累计分段，边界不整段重算 */
+for (const [pop, penalty] of [[0, 0], [1, 1], [5, 5], [6, 5.5], [11, 8],
+  [14, 9.5], [15, 10], [16, 11], [20, 15], [25, 20], [26, 21.5], [30, 27.5]]) {
+  near(G.popPenalty(pop), penalty, 'P' + pop + ' 人口惩罚');
+}
+
+/* 12.6.1 声望档位：最后一档为 75，不能再用统一步长 */
+for (const [sat, rep] of [[-1, 0], [0, 0], [19.99, 0], [20, 1], [34.99, 1],
+  [35, 2], [49.99, 2], [50, 3], [64.99, 3], [65, 4], [74.99, 4], [75, 5], [120, 5]]) {
+  eq(G.repGainFor(sat, 15), rep, 'P15 满意度 ' + sat + ' 的声望');
+}
+for (const [pop, cap] of [[5, 3], [11, 3], [12, 4], [14, 4], [15, 5], [30, 5]]) {
+  eq(G.repCapFor(pop), cap, 'P' + pop + ' 声望上限');
+  eq(G.repGainFor(100, pop), cap, '高满意度 P' + pop + ' 仍遵守上限');
+  eq(G.repGainFor(20, pop), 1, '人口上限不直接奖励声望 P' + pop);
+}
+eq(G.repGainFor(100), 3, '省略人口时按起始人口计算，不绕过上限');
+
+function reputationState(pop) {
+  const st = G.newGame(123);
+  G.chooseBlueprint(st.pendingDraw.options[0]);
+  st.pop = pop;
+  st.townLevel = 4;
+  st.board = [];
+  st.active = [];
+  G.RES.forEach(r => { st.taskSupply[r.key] = 100; });
+  return st;
+}
+
+/* 12.6.2 实际到账、城镇不降级和各类预测使用当前人口 */
+for (const [pop, cap] of [[11, 3], [12, 4], [14, 4], [15, 5]]) {
+  const st = reputationState(pop);
+  st.board = [{ uid: 'rep-reclaim', defId: 'reclaim', spawnTurn: 1 }];
+  const before = JSON.stringify(G.exportState());
+  eq(G.compute().repGain, cap, 'Lv4 当前人口 P' + pop + ' 结算上限');
+  eq(G.forecast().last.repGain, cap, '下回合预测 P' + pop + ' 上限');
+  eq(G.forecastTask('rep-reclaim').last.repGain, cap, '接取任务预测 P' + pop + ' 上限');
+  const preview = G.buildPreview('farm');
+  eq(preview.after.repGain, cap, '建造后即时预测 P' + pop + ' 上限');
+  eq(preview.next.repGain, cap, '建造后下回合预测 P' + pop + ' 上限');
+  eq(JSON.stringify(G.exportState()), before, '声望预测不改真实状态 P' + pop);
+  ok(G.endTurn().ok, '声望场景可以推进 P' + pop);
+  eq(st.rep, cap, '实际到账使用当前人口 P' + pop);
+}
+
+const repDrop = reputationState(12);
+G.RES.forEach(r => { repDrop.taskSupply[r.key] = 0; });
+const dropForecast = G.forecast();
+eq(dropForecast.last.pop, 12, '预测结算快照保留掉人口前 P12');
+eq(dropForecast.pop, 10, '供给不足预测掉到 P10');
+eq(dropForecast.last.repGain, 0, '负满意度不加声望');
+eq(repDrop.pop, 12, '掉人口预测不修改真实人口');
+G.endTurn();
+eq(repDrop.pop, 10, '实际掉到 P10');
+eq(repDrop.townLevel, 4, '人口减少保留城镇等级');
+G.RES.forEach(r => { repDrop.taskSupply[r.key] = 100; });
+eq(G.forecast().last.repGain, 3, '恢复供给后人口上限随下降回到 +3');
+
+/* 12.6.3 人口奖励影响后续结算，不补发本回合，任务声望不受上限 */
+const repReward = reputationState(11);
+G.endTurn();
+eq(repReward.rep, 3, '领奖前已结算 +3');
+repReward.rewardQueue = [{ name: '测试奖励', pop: 4, rep: 8, money: 0, sup: { food: 1 } }];
+ok(G.chooseReward('pop').ok, '可以领取人口奖励');
+eq(repReward.pop, 15, '人口奖励跨过 P12 / P15');
+eq(repReward.rep, 11, '固定任务声望 +8 不受人口上限，不补发满意度声望');
+eq(repReward.last.repGain, 5, '奖励后即时快照同步 +5 上限');
+eq(G.forecast().last.repGain, 5, '奖励后下回合预测上限 +5');
+G.endTurn();
+eq(repReward.rep, 16, '下回合实际到账 +5');
 
 /* 12.7 同资源超额：接取前必须有正余量；供给下降后仍会超额减速 */
 const overState = G.newGame(51);
