@@ -1,8 +1,8 @@
 /*
- * 城建设计局 · 局内 v3.5.1 引擎
+ * 城建设计局 · 局内 v3.8.1 引擎
  * 纯逻辑、无 DOM，可在 Node 里直接 require 测试。
  *
- * 核心：30 回合 / 每回合 1 次建造 / 8 资源 / 人口常驻占用劳力 /
+ * 核心：30 回合 / 每回合 1 次建造或城镇升级 / 8 资源 / 人口常驻占用劳力 /
  *       任务奖励声望与供给 / 满意度分段人口惩罚 / 回合压力线性增加 / 建筑可停用。
  */
 (function (root, factory) {
@@ -20,9 +20,10 @@
   var REP_STEP = 10;
   var START_MONEY = 300;
   var TASK_POP_BONUS = 2;
-  var SAVE_VERSION = 2;
+  var SAVE_VERSION = 3;
   var START_POP = 5;
-  var NODES = [10, 25, 45, 65];
+  var TOWN_LEVELS = [6, 9, 12, 15];
+  var NODES = [];
   var REFRESH = [6, 11, 16, 21, 26];
   var START_TASKS = ['reclaim', 'waterworks', 'mining', 'relief', 'prospect'];
 
@@ -40,25 +41,31 @@
   RES.forEach(function (r) { RES_BY_KEY[r.key] = r; });
 
   var BASE_BUILDINGS = [
-    { id: 'farm',      name: '农场',   icon: '🌾', cost: 60,  labor: 1, max: 6, out: { food: 6 } },
-    { id: 'mine',      name: '原料站', icon: '⛏',  cost: 60,  labor: 1, max: 6, out: { material: 5 } },
-    { id: 'plant',     name: '电站',   icon: '⚡', cost: 70,  labor: 1, max: 6, out: { power: 5 } },
-    { id: 'well',      name: '水厂',   icon: '💧', cost: 60,  labor: 1, max: 6, out: { water: 5 } },
-    { id: 'clothes',   name: '服装厂', icon: '👕', cost: 100, labor: 1, max: 3, out: { clothes: 3 }, extra: { power: 2, water: 2 } },
-    { id: 'furniture', name: '家具厂', icon: '🛋', cost: 120, labor: 1, max: 3, out: { furniture: 2 }, extra: { material: 3, power: 2 } },
-    { id: 'pharma',    name: '制药厂', icon: '💊', cost: 150, labor: 1, max: 2, out: { medicine: 2 }, extra: { water: 2, power: 2, material: 1 } },
-    { id: 'school',    name: '学校',   icon: '📚', cost: 120, labor: 1, max: 2, out: { education: 2 }, extra: { power: 1, water: 1 } }
+    { id: 'farm',      name: '农场',   icon: '🌾', cost: 72,  labor: 1, max: 6, out: { food: 6 } },
+    { id: 'mine',      name: '原料站', icon: '⛏',  cost: 60,  labor: 1, max: 6, out: { material: 6 } },
+    { id: 'plant',     name: '电站',   icon: '⚡', cost: 60,  labor: 1, max: 6, out: { power: 6 } },
+    { id: 'well',      name: '水厂',   icon: '💧', cost: 60,  labor: 1, max: 6, out: { water: 6 } },
+    { id: 'clothes',   name: '服装厂', icon: '👕', cost: 100, labor: 1, max: 3, out: { clothes: 10 }, extra: { power: 2, water: 2 } },
+    { id: 'furniture', name: '家具厂', icon: '🛋', cost: 120, labor: 1, max: 3, out: { furniture: 11 }, extra: { material: 3, power: 2 } },
+    { id: 'pharma',    name: '制药厂', icon: '💊', cost: 150, labor: 1, max: 2, out: { medicine: 11 }, extra: { water: 2, power: 2, material: 1 } },
+    { id: 'school',    name: '学校',   icon: '📚', cost: 120, labor: 1, max: 2, out: { education: 8 }, extra: { power: 1, water: 1 } }
   ];
 
   var BLUEPRINTS = [
     { id: 'greenhouse', name: '温室',     icon: '🌱', cost: 90,  labor: 1, max: 2, out: { food: 8 } },
-    { id: 'ranch',      name: '牧场',     icon: '🐄', cost: 120, labor: 1, max: 2, out: { food: 12 }, extra: { material: 1 } },
-    { id: 'wind',       name: '风电站',   icon: '🌬', cost: 110, labor: 1, max: 2, out: { power: 8 } },
-    { id: 'deepwell',   name: '深水井',   icon: '🕳', cost: 100, labor: 1, max: 2, out: { water: 8 } },
-    { id: 'textile',    name: '纺织厂',   icon: '🧵', cost: 160, labor: 1, max: 2, out: { clothes: 5 }, extra: { power: 3, water: 3 } },
-    { id: 'workshop',   name: '家具工坊', icon: '🛠', cost: 160, labor: 1, max: 2, out: { furniture: 4 }, extra: { material: 4, power: 3 } },
-    { id: 'pharm2',     name: '药厂',     icon: '🧪', cost: 180, labor: 1, max: 1, out: { medicine: 3 }, extra: { water: 3, power: 3, material: 2 } },
-    { id: 'academy',    name: '学院',     icon: '🎓', cost: 150, labor: 1, max: 1, out: { education: 4 }, extra: { power: 2, water: 2 } },
+    { id: 'ranch',      name: '牧场',     icon: '🐄', cost: 120, labor: 1, max: 2, out: { food: 9 }, extra: { material: 1 } },
+    { id: 'wind',       name: '风电站',   icon: '🌬', cost: 100, labor: 1, max: 2, out: { power: 8 } },
+    { id: 'deepwell',   name: '深水井',   icon: '🕳', cost: 90,  labor: 1, max: 2, out: { water: 8 } },
+    { id: 'textile',    name: '纺织厂',   icon: '🧵', cost: 160, labor: 1, max: 2, out: { clothes: 14 }, extra: { power: 3, water: 3 } },
+    { id: 'workshop',   name: '家具工坊', icon: '🛠', cost: 160, labor: 1, max: 2, out: { furniture: 15 }, extra: { material: 4, power: 3 } },
+    { id: 'pharm2',     name: '药厂',     icon: '🧪', cost: 180, labor: 1, max: 1, out: { medicine: 15 }, extra: { water: 3, power: 3, material: 1 } },
+    { id: 'academy',    name: '学院',     icon: '🎓', cost: 150, labor: 1, max: 1, out: { education: 12 }, extra: { power: 2, water: 2 } },
+    { id: 'hydrofarm',  name: '水培农场', icon: '🥬', cost: 110, labor: 1, max: 1, out: { food: 5, water: 5 }, extra: { power: 2 } },
+    { id: 'geothermal', name: '地热电站', icon: '♨️', cost: 125, labor: 1, max: 1, out: { power: 5, water: 5 }, extra: { material: 2 } },
+    { id: 'recycling',  name: '回收工坊', icon: '♻️', cost: 115, labor: 1, max: 1, out: { material: 5, power: 5 }, extra: { water: 2 } },
+    { id: 'herb',       name: '药草园',   icon: '🌿', cost: 175, labor: 1, max: 1, out: { food: 11, medicine: 5 }, extra: { water: 3, power: 3, material: 2 } },
+    { id: 'garment',    name: '服装合作社', icon: '👗', cost: 170, labor: 1, max: 1, out: { clothes: 7, material: 7 }, extra: { power: 3, water: 3 } },
+    { id: 'medschool',  name: '医教中心', icon: '🏥', cost: 190, labor: 1, max: 1, out: { medicine: 9, education: 9 }, extra: { water: 4, power: 4, material: 2 } },
     { id: 'market',     name: '市场',     icon: '🏪', cost: 90,  labor: 0, max: 1, out: {}, bonus: { sat: 5 } },
     { id: 'warehouse',  name: '仓库',     icon: '📦', cost: 80,  labor: 0, max: 1, out: {}, bonus: { occDiscount: 0.2 } }
   ];
@@ -66,6 +73,18 @@
   var ALL_BUILDINGS = BASE_BUILDINGS.concat(BLUEPRINTS);
   var BUILDING_BY_ID = {};
   ALL_BUILDINGS.forEach(function (b) { BUILDING_BY_ID[b.id] = b; });
+
+  /* 一人八项需求总和，用于把“占用人口”折算成负向产出。 */
+  var OCCUPANCY_COST = round2(RES.reduce(function (sum, r) { return sum + r.demand; }, 0));
+
+  function buildingNet(def) {
+    if (!def || !def.out || !Object.keys(def.out).length) return null;
+    var gross = 0;
+    var extra = 0;
+    Object.keys(def.out).forEach(function (k) { gross += def.out[k]; });
+    Object.keys(def.extra || {}).forEach(function (k) { extra += def.extra[k]; });
+    return round2(gross - extra - (def.labor || 0) * OCCUPANCY_COST);
+  }
 
   function isAdvancedBuilding(def) {
     if (!def || !def.out) return false;
@@ -85,14 +104,14 @@
     { id: 'furniture_order', name: '家具订单', type: 'normal', duration: 4, blocks: [2], occ: { material: 3, power: 2 }, reward: { pop: 1, sup: { furniture: 2 }, rep: 4, money: 180 } },
     { id: 'vaccine',   name: '疫苗',     type: 'normal', duration: 5, blocks: [2, 3], occ: { water: 3, power: 3 }, reward: { pop: 1, sup: { medicine: 2 }, rep: 5, money: 220 } },
     { id: 'teaching',  name: '支教',     type: 'normal', duration: 4, blocks: [2], occ: { power: 2, water: 2 }, reward: { pop: 1, sup: { education: 2 }, rep: 4, money: 180 } },
-    { id: 'nightschool', name: '夜校',   type: 'normal', duration: 4, blocks: [2], occ: { food: 4, power: 4 }, reward: { pop: 2, rep: 5, money: 220 } },
-    { id: 'resettle',  name: '移民安置', type: 'normal', duration: 5, blocks: [3], occ: { food: 6, clothes: 2 }, reward: { pop: 3, rep: 6, money: 224 } },
+    { id: 'nightschool', name: '夜校',   type: 'normal', duration: 4, blocks: [2], occ: { food: 4, power: 4 }, reward: { pop: 2, sup: { education: 2 }, rep: 5, money: 220 } },
+    { id: 'resettle',  name: '移民安置', type: 'normal', duration: 5, blocks: [3], occ: { food: 6, clothes: 2 }, reward: { pop: 3, sup: { food: 3, water: 3 }, rep: 6, money: 224 } },
     { id: 'renewal',   name: '旧城改造', type: 'normal', duration: 5, blocks: [3], occ: { food: 5, material: 5, power: 5 }, reward: { pop: 2, sup: { food: 2, material: 2, power: 2 }, rep: 6, money: 240 } },
-    { id: 'relief',    name: '紧急救济', type: 'timed', window: 3, duration: 2, blocks: [1], occ: { food: 8 }, reward: { pop: 1, rep: 8, money: 164 } },
-    { id: 'festival',  name: '庆典',     type: 'timed', window: 2, duration: 2, blocks: [2], occ: { clothes: 3, food: 4 }, reward: { rep: 10, money: 156 } },
-    { id: 'expo',      name: '博览会',   type: 'timed', window: 3, duration: 3, blocks: [3], occ: { power: 6, clothes: 3 }, reward: { rep: 12, money: 200 } },
-    { id: 'pollution', name: '污染工厂', type: 'malignant', duration: 3, burdenA: { material: 5 }, occ: { material: 2 }, reward: { rep: 6, sup: { material: 4 }, money: 176 } },
-    { id: 'blackmarket', name: '黑市',   type: 'malignant', duration: 4, burdenA: { clothes: 4 }, occ: { clothes: 2 }, reward: { rep: 8, money: 240 } }
+    { id: 'relief',    name: '紧急救济', type: 'timed', window: 3, duration: 2, blocks: [1], occ: { food: 8 }, reward: { pop: 1, sup: { food: 3 }, rep: 8, money: 164 } },
+    { id: 'festival',  name: '庆典',     type: 'timed', window: 2, duration: 2, blocks: [2], occ: { clothes: 3, food: 4 }, reward: { pop: 1, sup: { clothes: 2, food: 3 }, rep: 10, money: 156 } },
+    { id: 'expo',      name: '博览会',   type: 'timed', window: 3, duration: 3, blocks: [3], occ: { power: 6, clothes: 3 }, reward: { pop: 1, sup: { power: 3, clothes: 2 }, rep: 12, money: 200 } },
+    { id: 'pollution', name: '污染工厂', type: 'malignant', duration: 3, burdenA: { material: 5 }, occ: { material: 2 }, reward: { pop: 1, sup: { material: 4 }, rep: 6, money: 176 } },
+    { id: 'blackmarket', name: '黑市',   type: 'malignant', duration: 4, burdenA: { clothes: 4 }, occ: { clothes: 2 }, reward: { pop: 1, sup: { clothes: 3 }, rep: 8, money: 240 } }
   ];
   var TASK_BY_ID = {};
   TASK_DEFS.forEach(function (t) { TASK_BY_ID[t.id] = t; });
@@ -201,23 +220,62 @@
       state.active.some(function (t) { return t.defId === defId; });
   }
 
-  function completeTask(t) {
+  function rewardOfferFor(t) {
     var def = TASK_BY_ID[t.defId];
     var r = def.reward || {};
-    var parts = [];
-    var popGain = r.pop ? r.pop + TASK_POP_BONUS : 0;
-    if (popGain) { state.pop += popGain; parts.push('人口 +' + popGain); }
-    if (r.money) { state.money += r.money; parts.push('金 +' + r.money); }
-    if (r.rep) { state.rep += r.rep; parts.push('声望 +' + r.rep); }
-    if (r.sup) {
-      Object.keys(r.sup).forEach(function (k) {
-        state.taskSupply[k] = round2((state.taskSupply[k] || 0) + r.sup[k]);
-        parts.push(resName(k) + ' +' + r.sup[k]);
-      });
-    }
+    return {
+      uid: t.uid,
+      defId: t.defId,
+      name: def.name,
+      icon: def.icon || '📜',
+      money: r.money || 0,
+      rep: r.rep || 0,
+      pop: (r.pop || 0) + TASK_POP_BONUS,
+      sup: Object.assign({}, r.sup || {})
+    };
+  }
+
+  function completeTask(t) {
+    var def = TASK_BY_ID[t.defId];
     state.active = state.active.filter(function (x) { return x.uid !== t.uid; });
     state.stats.tasksDone += 1;
-    log('任务完成：' + def.name + '（' + parts.join('、') + '）', 'good');
+    state.rewardQueue.push(rewardOfferFor(t));
+    log('任务完成：' + def.name + '，选择奖励（人口或资源）', 'good');
+  }
+
+  function rewardPending() {
+    return !!(state.rewardQueue && state.rewardQueue.length);
+  }
+
+  function chooseReward(choice) {
+    if (!state || state.over) return { ok: false, error: '游戏已结束' };
+    if (!rewardPending()) return { ok: false, error: '没有待选奖励' };
+    var offer = state.rewardQueue[0];
+    if (choice !== 'pop' && choice !== 'sup') return { ok: false, error: '请选择人口或资源奖励' };
+    if (choice === 'sup' && !Object.keys(offer.sup || {}).length) return { ok: false, error: '该任务没有资源奖励' };
+    var parts = [];
+    if (offer.money) { state.money += offer.money; parts.push('金 +' + offer.money); }
+    if (offer.rep) { state.rep += offer.rep; parts.push('声望 +' + offer.rep); }
+    if (choice === 'pop') {
+      state.pop += offer.pop;
+      parts.push('人口 +' + offer.pop);
+    } else {
+      Object.keys(offer.sup).forEach(function (k) {
+        state.taskSupply[k] = round2((state.taskSupply[k] || 0) + offer.sup[k]);
+        parts.push(resName(k) + ' +' + offer.sup[k]);
+      });
+    }
+    state.rewardQueue.shift();
+    log('领取奖励：' + offer.name + '（' + parts.join('、') + '）', 'good');
+    /* 立即刷新一次快照，让选择人口后的人口/劳力/满意度在界面上同步。 */
+    state.last = compute();
+    state.sat = state.last.sat;
+    return {
+      ok: true,
+      choice: choice,
+      offer: offer,
+      next: state.rewardQueue.length ? state.rewardQueue[0] : null
+    };
   }
 
   function refreshTasks() {
@@ -263,6 +321,7 @@
     /* 高级建筑先不产出：要等低阶投入品检查通过。 */
     var advancedBuildings = [];
     var advancedExtra = emptyRes();
+    var advancedOut = emptyRes();
     state.buildings.forEach(function (b) {
       if (!b.active) return;
       var def = BUILDING_BY_ID[b.defId];
@@ -270,6 +329,7 @@
       if (isAdvancedBuilding(def)) {
         advancedBuildings.push(b);
         addTo(advancedExtra, def.extra);
+        addTo(advancedOut, def.out);
       } else {
         addTo(supply, def.out);
       }
@@ -299,19 +359,42 @@
     }
 
     /* 低阶资源短缺按项计：每缺 1 项，高级产出 -25%；4 项全缺 = -100%。
-       短缺判定包含高级建筑自身的额外投入，所以高级投入被卡住时也会减产；
-       但不再一缺就全停，避免低阶刚够人口时高级完全不出。 */
+       短缺判定包含高级建筑自身的额外投入，也会计入高级建筑产出的基础资源；
+       所以“服装合作社产原料、药草园产食物”不会被漏算，也不会出现原料卡够却误减产。
+       高级产出随减产下降，因此反复检查到稳定倍数。 */
     var advancedShort = 0;
+    var advancedReasons = [];
+    var advancedMultiplier = 1;
     if (advancedBuildings.length) {
-      RES.forEach(function (r) {
-        if (r.group !== 'basic') return;
-        var available = round2(supply[r.key] - (occ[r.key] || 0));
-        var need = round2(state.pop * r.demand + (extra[r.key] || 0));
-        if (available < need) advancedShort += 1;
-      });
+      for (var pass = 0; pass < 6; pass++) {
+        var shortCount = 0;
+        var shortReasons = [];
+        RES.forEach(function (r) {
+          if (r.group !== 'basic') return;
+          var advancedBasic = round2((advancedOut[r.key] || 0) * advancedMultiplier);
+          var available = round2(supply[r.key] + advancedBasic - (occ[r.key] || 0));
+          var need = round2(state.pop * r.demand + (extra[r.key] || 0));
+          if (available < need) {
+            shortCount += 1;
+            shortReasons.push({
+              key: r.key,
+              name: r.name,
+              available: available,
+              need: need,
+              gap: round2(need - available),
+              popNeed: round2(state.pop * r.demand),
+              extraNeed: round2(extra[r.key] || 0)
+            });
+          }
+        });
+        advancedShort = shortCount;
+        advancedReasons = shortReasons;
+        var nextMultiplier = round2(Math.max(0, 1 - advancedShort * 0.25));
+        if (nextMultiplier === advancedMultiplier) break;
+        advancedMultiplier = nextMultiplier;
+      }
     }
-    var advancedMultiplier = round2(Math.max(0, 1 - advancedShort * 0.25));
-    var advancedStopped = advancedShort >= 4;
+    var advancedStopped = advancedMultiplier <= 0;
     if (advancedStopped) {
       RES.forEach(function (r) {
         extra[r.key] = Math.max(0, round2((extra[r.key] || 0) - (advancedExtra[r.key] || 0)));
@@ -335,7 +418,7 @@
       var o = occ[r.key] || 0;
       var avail = Math.max(0, round2(supply[r.key] - o));
       var over = Math.max(0, round2(o - supply[r.key]));
-      var score = d <= 0 ? 10 : 10 * Math.min(1, avail / d);
+      var score = d <= 0 ? 15 : 15 * Math.min(1, avail / d);
       return {
         key: r.key, name: r.name, icon: r.icon, group: r.group,
         sup: round2(supply[r.key]), dem: d, occ: round2(o), avail: avail,
@@ -360,6 +443,7 @@
       baseSat: baseSat, turnPressure: turnPressure,
       sat: sat, repGain: repGain, popLoss: popLoss, market: market,
       advancedStopped: advancedStopped, advancedShort: advancedShort,
+      advancedReasons: advancedReasons,
       advancedMultiplier: advancedMultiplier,
       advancedOutputPct: Math.round(advancedMultiplier * 100),
       pop: state.pop
@@ -385,7 +469,7 @@
       log('满意度 ' + c.sat.toFixed(1) + extra + '，人口 -' + c.popLoss, 'bad');
     } else {
       log('满意度 ' + c.sat.toFixed(1) + extra + '，稳定' +
-        (c.sat >= 10 ? '（未到声望线 ' + REP_START + '）' : ''), 'info');
+        (c.sat >= REP_START / 2 ? '（未到声望线 ' + REP_START + '）' : ''), 'info');
     }
     if (c.popLoss > 0) {
       state.pop = Math.max(1, state.pop - c.popLoss);
@@ -409,38 +493,85 @@
     done.forEach(completeTask);
     settle();
     state.hasBuilt = false;
-    checkNodes();
   }
 
   /* ---------------- blueprint ---------------- */
 
-  function openDraw(node, opening) {
+  function openDraw(source, opts) {
+    opts = opts || {};
     var pool = BLUEPRINTS.filter(function (b) { return state.unlocked.indexOf(b.id) < 0; });
     if (!pool.length) return false;
-    var options = shuffle(pool).slice(0, 3).map(function (b) { return b.id; });
-    state.pendingDraw = { options: options, node: node || null, opening: !!opening };
-    log(opening ? '开局蓝图：3 选 1' : '声望 ' + node + '：蓝图 3 选 1', 'draw');
+    var want = opts.count || 1;
+    var optionCount = opts.options || 3;
+    var count = Math.min(want, pool.length);
+    var options = shuffle(pool).slice(0, Math.min(optionCount, pool.length)).map(function (b) { return b.id; });
+    state.pendingDraw = {
+      options: options,
+      count: count,
+      source: source || 'opening',
+      level: opts.level || null,
+      opening: source === 'opening'
+    };
+    if (source === 'opening') log('开局蓝图：3 选 1', 'draw');
+    else log('城镇升级 Lv.' + opts.level + '：5 选 2', 'draw');
     return true;
   }
 
-  function checkNodes() {
-    if (state.pendingDraw || state.over) return;
-    while (state.nodeIndex < NODES.length && state.rep >= NODES[state.nodeIndex]) {
-      var node = NODES[state.nodeIndex];
-      state.nodeIndex += 1;
-      if (openDraw(node, false)) return;
+  function chooseBlueprints(ids) {
+    if (!state.pendingDraw) return { ok: false, error: '没有待选蓝图' };
+    var d = state.pendingDraw;
+    if (!Array.isArray(ids)) return { ok: false, error: '选择格式错误' };
+    if (ids.length !== d.count) return { ok: false, error: '需要选择 ' + d.count + ' 张蓝图' };
+    var seen = {};
+    for (var i = 0; i < ids.length; i++) {
+      var id = ids[i];
+      if (d.options.indexOf(id) < 0) return { ok: false, error: '该蓝图不在选项中' };
+      if (seen[id]) return { ok: false, error: '不能重复选择同一张蓝图' };
+      seen[id] = true;
     }
+    ids.forEach(function (id) {
+      state.unlocked.push(id);
+      log('蓝图解锁：' + BUILDING_BY_ID[id].name, 'good');
+    });
+    state.pendingDraw = null;
+    return { ok: true, ids: ids.slice() };
   }
 
   function chooseBlueprint(id) {
     if (!state.pendingDraw) return { ok: false, error: '没有待选蓝图' };
-    if (state.pendingDraw.options.indexOf(id) < 0) return { ok: false, error: '该蓝图不在选项中' };
-    state.unlocked.push(id);
-    var def = BUILDING_BY_ID[id];
-    state.pendingDraw = null;
-    log('蓝图解锁：' + def.name, 'good');
-    checkNodes();
-    return { ok: true };
+    if (state.pendingDraw.count !== 1) return { ok: false, error: '本次需要选择 2 张蓝图' };
+    return chooseBlueprints([id]);
+  }
+
+  /* ---------------- town ---------------- */
+
+  function nextTownPop() {
+    if (!state || state.townLevel >= TOWN_LEVELS.length) return null;
+    return TOWN_LEVELS[state.townLevel];
+  }
+
+  function townUpgradeStatus() {
+    if (!state) return { ok: false, reason: '还没有城市' };
+    if (state.over) return { ok: false, reason: '游戏已结束' };
+    if (state.pendingDraw) return { ok: false, reason: '先选择蓝图' };
+    if (rewardPending()) return { ok: false, reason: '先选择任务奖励' };
+    if (state.townLevel >= TOWN_LEVELS.length) return { ok: false, reason: '已达最高等级' };
+    if (state.hasBuilt) return { ok: false, reason: '本回合已使用建造行动' };
+    if (state.turn >= MAX_TURNS) return { ok: false, reason: '最后一回合不能升级' };
+    var need = TOWN_LEVELS[state.townLevel];
+    if (state.pop < need) return { ok: false, reason: '人口不足：当前 P' + state.pop + ' / 需要 P' + need, need: need };
+    return { ok: true, reason: '', need: need, level: state.townLevel + 1 };
+  }
+
+  function upgradeTown() {
+    var st = townUpgradeStatus();
+    if (!st.ok) return { ok: false, error: st.reason };
+    state.townLevel += 1;
+    state.hasBuilt = true;
+    state.stats.townUpgrades = (state.stats.townUpgrades || 0) + 1;
+    log('城镇升级：Lv.' + state.townLevel + '（消耗本回合建造行动）', 'good');
+    openDraw('town', { count: 2, options: 5, level: state.townLevel });
+    return { ok: true, level: state.townLevel };
   }
 
   /* ---------------- build / toggle ---------------- */
@@ -470,8 +601,9 @@
     if (!def) return { ok: false, reason: '未知建筑' };
     if (state.over) return { ok: false, reason: '游戏已结束' };
     if (state.pendingDraw) return { ok: false, reason: '先选蓝图' };
+    if (rewardPending()) return { ok: false, reason: '先选择任务奖励' };
     if (!isBuildingAvailable(defId)) return { ok: false, reason: '蓝图未解锁' };
-    if (state.hasBuilt) return { ok: false, reason: '本回合已建造' };
+    if (state.hasBuilt) return { ok: false, reason: '本回合已建造/升级' };
     if (state.buildings.length >= CAP) return { ok: false, reason: '城市已满 24 座' };
     if (countBuilt(defId) >= def.max) return { ok: false, reason: '已达上限 ' + def.max };
     if (def.labor > laborAvailable()) return { ok: false, reason: '劳力不足' };
@@ -489,6 +621,37 @@
     state.stats.built += 1;
     log('建造：' + def.name + '（-' + def.cost + ' 金，劳力 ' + def.labor + '）', 'build');
     return { ok: true };
+  }
+
+  /* 建造预览：在 clone 上真正建造一次，返回建造前后的供需与高级减产原因。 */
+  function buildPreview(defId) {
+    var st = buildStatus(defId);
+    if (!st.ok) return { ok: false, error: st.reason };
+    var before = compute();
+    var laborBefore = laborUsed();
+    var moneyBefore = state.money;
+    var real = state;
+    var copy = JSON.parse(JSON.stringify(state));
+    state = copy;
+    try {
+      var b = build(defId);
+      if (!b.ok) return b;
+      var after = compute();
+      var next = forecast();
+      return {
+        ok: true,
+        def: BUILDING_BY_ID[defId],
+        before: before,
+        after: after,
+        next: next ? next.last : null,
+        laborBefore: laborBefore,
+        laborAfter: laborUsed(),
+        moneyBefore: moneyBefore,
+        moneyAfter: state.money
+      };
+    } finally {
+      state = real;
+    }
   }
 
   function setBuildingActive(uid, active) {
@@ -617,6 +780,62 @@
     return taskStepForOver(over);
   }
 
+  /* 预估某个任务栏任务的完成回合：在 clone 上先接取，再逐回合推进。
+     这样“接取后才出现的同资源超额减速”会提前计入完成回合。 */
+  function estimateTaskFinish(uid) {
+    if (!state || state.over || state.pendingDraw) {
+      return { ok: false, error: '当前无法估算' };
+    }
+    var real = state;
+    var copy = JSON.parse(JSON.stringify(state));
+    state = copy;
+    try {
+      var onBoard = copy.board.some(function (x) { return x.uid === uid; });
+      if (onBoard) {
+        var gate = taskAcceptStatus(uid);
+        if (!gate.ok) return gate;
+        var accepted = acceptTask(uid);
+        if (!accepted.ok) return accepted;
+      }
+      var target = copy.active.find(function (x) { return x.uid === uid; });
+      if (!target) return { ok: false, error: '任务不存在' };
+
+      var c = compute();
+      var overMap = {};
+      c.per.forEach(function (p) { overMap[p.key] = p.over; });
+      var over = 0;
+      Object.keys(TASK_BY_ID[target.defId].occ).forEach(function (k) { over += overMap[k] || 0; });
+      var step = taskStepForOver(over);
+
+      var finishTurn = null;
+      var guard = 0;
+      while (finishTurn === null && guard < 80) {
+        if (copy.pendingDraw) {
+          var pick = copy.pendingDraw.options[0];
+          if (!chooseBlueprint(pick).ok) break;
+        }
+        if (copy.turn >= MAX_TURNS) {
+          copy.turn += 1;
+          copy.hasBuilt = false;
+          startTurn();
+        } else {
+          var stepResult = endTurn();
+          if (!stepResult || !stepResult.ok) break;
+        }
+        guard += 1;
+        if (!copy.active.some(function (x) { return x.uid === uid; })) finishTurn = copy.turn;
+      }
+      return {
+        ok: true,
+        finishTurn: finishTurn,
+        late: finishTurn === null || finishTurn > MAX_TURNS,
+        step: step
+      };
+    } finally {
+      state = real;
+    }
+  }
+
   function taskAcceptStatus(uid) {
     if (state.over) return { ok: false, error: '游戏已结束' };
     if (state.pendingDraw) return { ok: false, error: '先选蓝图' };
@@ -648,6 +867,7 @@
   function acceptTask(uid) {
     if (state.over) return { ok: false, error: '游戏已结束' };
     if (state.pendingDraw) return { ok: false, error: '先选蓝图' };
+    if (rewardPending()) return { ok: false, error: '先选择任务奖励' };
     var idx = state.board.findIndex(function (t) { return t.uid === uid; });
     if (idx < 0) return { ok: false, error: '任务不存在' };
     var t = state.board[idx];
@@ -664,6 +884,7 @@
 
   function abandonTask(uid) {
     if (state.over) return { ok: false, error: '游戏已结束' };
+    if (rewardPending()) return { ok: false, error: '先选择任务奖励' };
     var idx = state.active.findIndex(function (t) { return t.uid === uid; });
     if (idx < 0) return { ok: false, error: '任务不在进行中' };
     var t = state.active[idx];
@@ -685,6 +906,7 @@
   function endTurn() {
     if (state.over) return { ok: false, error: '游戏已结束' };
     if (state.pendingDraw) return { ok: false, error: '先选择蓝图' };
+    if (rewardPending()) return { ok: false, error: '先选择任务奖励' };
     var used = laborUsed();
     if (used > state.pop) {
       return { ok: false, error: '劳力不足：已占用 ' + used + ' / 人口 ' + state.pop + '，请先停用建筑' };
@@ -694,7 +916,8 @@
       state.final = {
         rep: state.rep, pop: state.pop, sat: state.sat,
         buildings: state.buildings.length, tasksDone: state.stats.tasksDone,
-        money: state.money, built: state.stats.built, popLost: state.stats.popLost
+        money: state.money, built: state.stats.built, popLost: state.stats.popLost,
+        level: state.townLevel
       };
       log('30 回合结束。最终声望 ' + state.rep + '。', 'end');
       return { ok: true, over: true };
@@ -735,20 +958,20 @@
       spawnedNormals: { 1: [], 2: [], 3: [] },
       taskSupply: emptyRes(),
       hasBuilt: false,
+      townLevel: 0,
       over: false,
       final: null,
       pendingDraw: null,
-      nodeIndex: 0,
+      rewardQueue: [],
       nextUid: 1,
       log: [],
-      stats: { tasksDone: 0, built: 0, popLost: 0 },
+      stats: { tasksDone: 0, built: 0, popLost: 0, townUpgrades: 0 },
       last: null
     };
     START_TASKS.forEach(function (id) { addTask(id, 1); });
     startTurn();
     log('城市开局：P5、300 金，满意度 0。先补基础供给。', 'start');
-    checkNodes();
-    if (!state.pendingDraw) openDraw(null, true);
+    openDraw('opening', { count: 1, options: 3 });
     return state;
   }
 
@@ -772,9 +995,12 @@
       return { ok: false, error: '存档字段不完整' };
     }
     state = s;
-    if (!state.stats) state.stats = { tasksDone: 0, built: 0, popLost: 0 };
+    if (!state.stats) state.stats = { tasksDone: 0, built: 0, popLost: 0, townUpgrades: 0 };
+    if (typeof state.stats.townUpgrades !== 'number') state.stats.townUpgrades = 0;
     if (!state.spawnedNormals) state.spawnedNormals = { 1: [], 2: [], 3: [] };
     if (!state.taskSupply) state.taskSupply = emptyRes();
+    if (typeof state.townLevel !== 'number') state.townLevel = 0;
+    if (!Array.isArray(state.rewardQueue)) state.rewardQueue = [];
     return { ok: true };
   }
 
@@ -789,20 +1015,30 @@
     SAVE_VERSION: SAVE_VERSION,
     build: build,
     buildStatus: buildStatus,
+    buildPreview: buildPreview,
     setBuildingActive: setBuildingActive,
     setBuildingCount: setBuildingCount,
     acceptTask: acceptTask,
     taskAcceptStatus: taskAcceptStatus,
+    estimateTaskFinish: estimateTaskFinish,
     abandonTask: abandonTask,
     previewTask: previewTask,
     endTurn: endTurn,
     chooseBlueprint: chooseBlueprint,
+    chooseBlueprints: chooseBlueprints,
+    chooseReward: chooseReward,
+    townUpgradeStatus: townUpgradeStatus,
+    upgradeTown: upgradeTown,
+    nextTownPop: nextTownPop,
+    TOWN_LEVELS: TOWN_LEVELS,
     laborUsed: laborUsed,
     laborAvailable: laborAvailable,
     popPenalty: popPenalty,
     RES: RES,
     BASE_BUILDINGS: BASE_BUILDINGS,
     BLUEPRINTS: BLUEPRINTS,
+    OCCUPANCY_COST: OCCUPANCY_COST,
+    buildingNet: buildingNet,
     TASK_DEFS: TASK_DEFS,
     MAX_TURNS: MAX_TURNS,
     CAP: CAP,

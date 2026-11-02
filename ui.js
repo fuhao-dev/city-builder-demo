@@ -1,4 +1,4 @@
-/* 城建设计局 · v3.5.1 界面 */
+/* 城建设计局 · v3.8.1 界面 */
 (function () {
   'use strict';
 
@@ -9,16 +9,25 @@
   var toastTimer = null;
   var taskFilter = 'all';
   var showHelp = false;
+  var buildPreviewId = null;
+  var drawPick = [];
+  var drawKey = null;
 
   var BP_NOTES = {
-    greenhouse: '1 劳力，食物 8（农场 6），省 1 座槽',
-    ranch: '1 劳力，食物 12（2 农场要 2 劳力），省 1 劳力 + 1 槽',
-    wind: '1 劳力，电力 8（电站 5），省 1 座槽',
-    deepwell: '1 劳力，水 8（水厂 5），省 1 座槽',
-    textile: '1 劳力，衣服 5（服装厂 3）；省槽，耗电/水略高',
-    workshop: '1 劳力，家具 4（家具厂 2）；省槽',
-    pharm2: '1 劳力，药品 3（制药厂 2）；省槽',
-    academy: '1 劳力，教育 4（学校 2）；省槽',
+    greenhouse: '食物专精：单座供给 8，省 1 槽',
+    ranch: '食物专精：净产出高，耗少量原料',
+    wind: '电力专精：单座供给 8，省 1 槽',
+    deepwell: '水专精：单座供给 8，省 1 槽',
+    textile: '衣服专精：净产出高于服装厂，耗电/水',
+    workshop: '家具专精：净产出高于家具厂，耗原料/电',
+    pharm2: '药品专精：净产出高于制药厂，耗水/电/原料',
+    academy: '教育专精：净产出高于学校，耗电/水',
+    hydrofarm: '食物 + 水双供；省 1 槽/劳力，耗电',
+    geothermal: '电力 + 水双供；省 1 槽/劳力，耗原料',
+    recycling: '原料 + 电力双供；省 1 槽/劳力，耗水',
+    herb: '食物 + 药品双供；省 1 槽/劳力，耗水/电/原料',
+    garment: '衣服 + 原料双供；省 1 槽/劳力，耗电/水',
+    medschool: '药品 + 教育双供；省 1 槽/劳力，耗水/电/原料',
     market: '0 劳力，满意度 +5',
     warehouse: '0 劳力，任务占用 −20%'
   };
@@ -26,6 +35,7 @@
 
   function fmt(n) { return Math.round(n).toLocaleString('zh-CN'); }
   function fmt1(n) { return (Math.round(n * 10) / 10).toFixed(1); }
+  function fmtNet(n) { return (n > 0 ? '+' : '') + (Math.round(n * 100) / 100).toFixed(2); }
   function esc(s) {
     return String(s).replace(/[&<>"]/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
@@ -88,12 +98,14 @@
   }
   function rewardText(def) {
     var r = def.reward || {};
-    var parts = [];
-    if (r.pop) parts.push('人口 +' + (r.pop + G.TASK_POP_BONUS));
-    if (r.sup) Object.keys(r.sup).forEach(function (k) { parts.push(resName(k) + ' +' + r.sup[k]); });
-    if (r.rep) parts.push('声望 +' + r.rep);
-    if (r.money) parts.push('金 +' + r.money);
-    return parts.join(' · ');
+    var common = [];
+    if (r.rep) common.push('声望 +' + r.rep);
+    if (r.money) common.push('金 +' + r.money);
+    var popPart = '人口 +' + ((r.pop || 0) + G.TASK_POP_BONUS);
+    var supPart = r.sup ? Object.keys(r.sup).map(function (k) {
+      return resName(k) + ' +' + r.sup[k];
+    }).join('、') : '资源';
+    return common.join(' · ') + ' · 二选一：' + popPart + ' / ' + supPart;
   }
   function typeLabel(type) {
     return type === 'timed' ? '限时' : type === 'malignant' ? '恶性' : '普通';
@@ -115,6 +127,7 @@
     var fc = G.forecast();
     renderResources(S, fc);
     renderCity(S, used);
+    renderTownUpgrade(S);
     renderBuild(S, used);
     renderTasks(S, fc);
     renderLog(S);
@@ -138,6 +151,11 @@
     labor.className = 'v labor' + (used > S.pop ? ' neg' : '');
     labor.title = '已占用 ' + used + ' · 可用 ' + (S.pop - used);
     $('statCity').textContent = S.buildings.length + ' / ' + G.CAP;
+    var town = $('statTown');
+    town.textContent = 'Lv.' + S.townLevel;
+    town.className = 'v town' + (S.townLevel >= G.TOWN_LEVELS.length ? ' max' : '');
+    var nextPop = G.nextTownPop();
+    $('statTownNext').textContent = nextPop ? '下阶 P' + nextPop : '已满级';
     $('statBest').textContent = best ? best : '—';
     $('statBest').title = '本机最佳最终声望';
   }
@@ -249,22 +267,51 @@
     var count = S.buildings.filter(function (b) { return b.defId === id; }).length;
     var extra = extraText(d);
     var note = bpNote(id);
+    var net = G.buildingNet(d);
+    var netLine = net === null ? '' :
+      '<small class="bc-net" title="满产净产出 = 产出 − 额外消耗 − 劳力×3.55；仅用于横向比较，不重复扣实际供需">满产净 ' + fmtNet(net) + ' / 回合</small>';
     var reason = st.ok ? '' : '<span class="bc-reason">' + st.reason + '</span>';
     return '<button class="build-card' + (st.ok ? '' : ' is-dis') + '" data-build="' + id + '"' +
-      (st.ok ? '' : ' disabled') + ' title="' + (st.ok ? '建造 ' + d.name : st.reason) + '" type="button">' +
+      (st.ok ? '' : ' disabled') + ' title="' + (st.ok ? '预览建造 ' + d.name : st.reason) + '" type="button">' +
       '<span class="bc-icon">' + d.icon + '</span>' +
       '<div class="bc-main"><b>' + d.name + '</b>' +
       '<small>' + outText(d) + ' · 劳力 ' + d.labor + '</small>' +
       (extra ? '<small class="extra">耗 ' + extra + '</small>' : '') +
+      (netLine) +
       (note ? '<small class="bp-note">' + note + '</small>' : '') + '</div>' +
       '<div class="bc-right"><span class="bc-cost">' + d.cost + '</span>' +
       '<span class="bc-count">' + count + '/' + d.max + '</span>' + reason + '</div>' +
       '</button>';
   }
 
+  function renderTownUpgrade(S) {
+    var box = $('townUpgrade');
+    if (!box) return;
+    var maxLevel = G.TOWN_LEVELS.length;
+    if (S.townLevel >= maxLevel) {
+      box.innerHTML = '<div class="town-box maxed">' +
+        '<div class="town-main"><span class="town-lv">Lv.' + S.townLevel + '</span>' +
+        '<div><b>城镇已满级</b><small>蓝图池 ' + S.unlocked.length + ' / ' + G.BLUEPRINTS.length + '</small></div></div>' +
+        '<span class="town-tag">MAX</span></div>';
+      return;
+    }
+    var st = G.townUpgradeStatus();
+    var need = G.nextTownPop();
+    var nextLevel = S.townLevel + 1;
+    var can = st.ok;
+    var reason = can ? '当前 P' + S.pop + ' / 需求 P' + need : st.reason;
+    box.innerHTML = '<div class="town-box' + (can ? ' ready' : '') + '">' +
+      '<div class="town-main"><span class="town-lv">Lv.' + S.townLevel + '</span>' +
+      '<div><b>升级城镇 → Lv.' + nextLevel + '</b>' +
+      '<small>需求 P' + need + ' · 5 选 2 蓝图 · 消耗本回合建造</small></div></div>' +
+      '<button class="town-btn" data-town-upgrade="1" type="button"' + (can ? '' : ' disabled') + '>' +
+      (can ? '升级' : '不可升级') + '</button>' +
+      '<div class="town-note' + (can ? '' : ' muted') + '">' + reason + '</div></div>';
+  }
+
   function renderBuild(S, used) {
     var hint = $('buildHint');
-    hint.textContent = (S.hasBuilt ? '本回合已建造' : '每回合 1 次') + ' · 劳力 ' + used + ' / ' + S.pop + ' · 蓝图 ' + S.unlocked.length + '/10';
+    hint.textContent = (S.hasBuilt ? '本回合已建造/升级' : '每回合 1 次') + ' · 劳力 ' + used + ' / ' + S.pop + ' · 蓝图 ' + S.unlocked.length + '/' + G.BLUEPRINTS.length;
     hint.className = 'hint' + (used > S.pop ? ' danger' : '');
     var html = '<div class="build-group"><div class="group-head"><span>基础</span><span>8 种</span></div><div class="build-grid">';
     html += G.BASE_BUILDINGS.map(function (d) { return buildCard(S, d.id); }).join('');
@@ -275,7 +322,7 @@
       html += unlocked.map(function (d) { return buildCard(S, d.id); }).join('');
       html += '</div></div>';
     } else {
-      html += '<div class="empty small">蓝图在开局和声望 10/25/45/65 抽取。先选完开局蓝图。</div>';
+      html += '<div class="empty small">蓝图从开局 3 选 1 和城镇升级 5 选 2 获得；先选完开局蓝图。</div>';
     }
     $('buildList').innerHTML = html;
   }
@@ -305,6 +352,7 @@
         var gate = G.taskAcceptStatus(t.uid);
         var blocked = !gate.ok;
         var ft = blocked ? null : G.forecastTask(t.uid);
+        var est = blocked ? null : G.estimateTaskFinish(t.uid);
         var preview = ft ? ft.sat : null;
         var previewCls = preview === null ? '' : preview < 0 ? ' neg' : preview >= G.REP_START ? ' pos' : ' mid';
         var deltaTxt = ft
@@ -327,10 +375,17 @@
           extra += '<div class="tc-deadline">出生负担 A：' + occText(d.burdenA) +
             (t.aReleased ? '（已释放）' : '（接取前持续占用）') + '</div>';
         }
-        var finishTurn = S.turn + d.duration;
-        if (finishTurn > G.MAX_TURNS) {
-          extra += '<div class="tc-deadline urgent">本局剩余回合不足：预计 T' + finishTurn +
-            ' 完成，最终 T' + G.MAX_TURNS + '</div>';
+        if (est && est.ok) {
+          if (est.finishTurn) {
+            var slowTxt = est.step < 1 ? ' · 接取后进度 ×' + est.step : '';
+            extra += '<div class="tc-deadline' + (est.late ? ' urgent' : '') + '">接取后预计 T' + est.finishTurn +
+              ' 完成' + slowTxt + '</div>';
+            if (est.late) {
+              extra += '<div class="tc-deadline urgent">本局内无法完成（最终 T' + G.MAX_TURNS + '）</div>';
+            }
+          } else if (est.late) {
+            extra += '<div class="tc-deadline urgent">接取后无法在 T' + G.MAX_TURNS + ' 前完成</div>';
+          }
         }
         var occLabel = d.type === 'malignant' ? '接取占用 B' : '占用';
         return '<article class="task-card ' + d.type + (blocked ? ' blocked' : '') + '">' +
@@ -364,11 +419,13 @@
         var foot = late
           ? slow + '本局内无法完成（预计 T' + finishTurn + '）'
           : (remain <= 1 ? slow + '下回合完成' : slow + '还需约 ' + Math.ceil(remain) + ' 回合');
+        var occLabel = d.type === 'malignant' ? '接取占用 B' : '占用';
         return '<article class="task-card active ' + d.type + '">' +
           '<div class="tc-top"><b>' + d.name + '</b><span class="badge">进行中</span>' +
           '<span class="tc-dur">' + t.progress + ' / ' + d.duration + '</span></div>' +
           '<div class="bar"><i style="width:' + pct + '%"></i></div>' +
-          '<div class="tc-occ">占用：' + occText(d.occ) + '</div>' +
+          '<div class="tc-occ">' + occLabel + '：' + occText(d.occ) + '</div>' +
+          '<div class="tc-reward">完成奖励：' + rewardText(d) + '</div>' +
           (late ? '<div class="tc-deadline urgent">本局剩余回合不足：预计 T' + finishTurn + ' 完成，最终 T' + G.MAX_TURNS + '</div>' : '') +
           '<div class="tc-foot"><span class="tc-sat' + (late ? ' neg' : '') + '">' + foot + '</span>' +
           '<button class="btn small ghost" data-abandon="' + t.uid + '" type="button">放弃</button></div>' +
@@ -387,17 +444,19 @@
     var over = S.over;
     var laborOver = used > S.pop;
     var finalTurn = S.turn >= G.MAX_TURNS;
-    var canEnd = !over && !S.pendingDraw && !laborOver;
+    var rewardWait = !!(S.rewardQueue && S.rewardQueue.length);
+    var canEnd = !over && !S.pendingDraw && !laborOver && !rewardWait;
     var btn = $('btnNext');
     btn.disabled = !canEnd;
     btn.textContent = over ? '已结束' : finalTurn ? '结算本局' : '进入下回合 →';
     var hint = $('actionHint');
-    if (S.pendingDraw) hint.textContent = '先选择蓝图';
+    if (rewardWait) hint.textContent = '先选择任务奖励：金钱+人口，或金钱+资源供给';
+    else if (S.pendingDraw) hint.textContent = '先选择蓝图';
     else if (over) hint.textContent = '30 回合结束 · 最终声望 ' + S.rep;
     else if (laborOver) hint.textContent = '劳力不足：已占用 ' + used + ' / 人口 ' + S.pop + '，停用建筑后才能进入下回合';
     else if (finalTurn) hint.textContent = '第 30 回合 · 点击结算本局（剩余 0 回合）';
-    else if (!S.hasBuilt) hint.textContent = '本回合还可建造 1 次 · 剩 ' + (G.MAX_TURNS - S.turn) + ' 回合 · 种子 ' + S.seed;
-    else hint.textContent = '本回合已建造；可接/放弃任务 · 剩 ' + (G.MAX_TURNS - S.turn) + ' 回合 · 种子 ' + S.seed;
+    else if (!S.hasBuilt) hint.textContent = '本回合还可建造或升级 1 次 · 剩 ' + (G.MAX_TURNS - S.turn) + ' 回合 · 种子 ' + S.seed;
+    else hint.textContent = '本回合已建造/升级；可接/放弃任务 · 剩 ' + (G.MAX_TURNS - S.turn) + ' 回合 · 种子 ' + S.seed;
     hint.className = 'action-hint' + (laborOver ? ' danger' : '');
   }
 
@@ -410,9 +469,12 @@
       '<li><b>超额减速</b>：同一资源占用超过供给时，相关任务进度变慢：超额 1 为 0.8 速、2 为 0.6 速、3 及以上为 0.5 速。集中叠接同资源会拖慢整批任务。</li>' +
       '<li><b>高级减产</b>：低阶资源每缺 1 项，高级产出 -25%；缺 2 项 -50%，缺 3 项 -75%，四项全缺停产。部分减产仍按原高级投入计算，停产时才暂停额外投入。</li>' +
       '<li><b>回合压力</b>：T1–6 为 0，T7 起线性增加到 T30 的 −5；不管基础满意度正负都扣，后期越来越难拿声望。</li>' +
-      '<li><b>每回合</b> 1 次建造；所有建筑最多占 1 人口，市场/仓库等部分蓝图 0 人口；人口既提供劳力也产生需求。</li>' +
-      '<li><b>任务</b> 开局 5 张，T' + G.REFRESH.join('/T') + ' 各刷新 3 张；接取前每种占用资源都必须有正余量，0 产出不能接。普通任务也给声望，限时任务过期消失；任务金币与人口奖励已提高。</li>' +
-      '<li><b>蓝图</b> 开局和声望 10/25/45/65 各 3 选 1；蓝图不花建造行动，但建造仍花钱/劳力。</li>' +
+      '<li><b>每回合</b> 1 次建造或城镇升级；所有建筑最多占 1 人口，市场/仓库等部分蓝图 0 人口；人口既提供劳力也产生需求。</li>' +
+      '<li><b>净产出</b>：1 劳力会占用 1 人，其八项需求合计 3.55，作为该建筑的负向产出；额外消耗也从产出中扣除。基础生产建筑满产净 +2.45，蓝图满产净 +4.45，建造卡会直接标出。净产出只用于横向比较，实际供需仍按产出与人口需求分别计算。</li>' +
+      '<li><b>城镇升级</b>：当前人口达到 P6 / P9 / P12 / P15 时，可手动升级城镇；升级消耗本回合建造行动，不花金钱、不占建筑位、不降级。每次升级从 5 张蓝图中选 2 张。</li>' +
+      '<li><b>建造预览</b>：点击建筑卡先预览；确认后才扣钱/占劳力。预览列出资源变化、满意度与具体高级减产原因。</li>' +
+      '<li><b>任务</b> 开局 5 张，T' + G.REFRESH.join('/T') + ' 各刷新 3 张；接取前每种占用资源都必须有正余量，0 产出不能接。任务卡会提前显示「接取后预计完成回合」，已计入接取后的同资源超额减速；完成后二选一：金钱+人口，或金钱+资源供给，选择前不能继续。</li>' +
+      '<li><b>蓝图</b> 开局 3 选 1；之后只通过城镇升级获得（每次 5 选 2）；声望不再给蓝图。蓝图不额外花建造行动，但建造仍花钱/劳力。</li>' +
       '</ul></div>';
   }
 
@@ -420,17 +482,118 @@
     return '<div class="rules">' +
       '<div class="end-kicker">30 回合 · 最终得分 = 累计声望</div>' +
       '<h2>规则速览</h2>' +
-      '<p><b>满意度</b>：八项资源各 0–10 分，减去人口惩罚、赤字 ' + G.DEFICIT + ' 和回合压力。&lt;0 掉人口；0–19.9 稳定、不加声望；20–29.9 每回合 +1，30–39.9 +2，40–49.9 +3，50–59.9 +4，≥60 +5（最高 5）。</p>' +
+      '<p><b>满意度</b>：八项资源各 0–15 分，减去人口惩罚、赤字 ' + G.DEFICIT + ' 和回合压力。&lt;0 掉人口；0–19.9 稳定、不加声望；20–29.9 每回合 +1，之后每 +10 再 +1（最高 5）。</p>' +
       '<p><b>超额减速</b>：同一资源被任务占用超过供给时，相关任务进度变慢：超额 1 → 0.8 速，2 → 0.6 速，3+ → 0.5 速。任务仍会推进，但叠接同资源会拖慢整批任务，奖励不再免费。</p>' +
       '<p><b>回合压力</b>：T1–6 为 0，T7 起线性增加，T30 为 −5；无论基础满意度正负都扣。后期想拿声望，需要比前期更高的基础供给。</p>' +
       '<p><b>资源条</b>：彩条不再表示满意度，总长度 = 需求 + 占用；金色为任务占用，青色/蓝色为已覆盖需求，红色斜纹为供给缺口。文字显示满足分，悬停可看供给、占用、需求与缺口。</p>' +
       '<p><b>资源</b>：卡面显示「当前 → 下回合预测」。下回合预测包含已建建筑、任务占用和下一回合会完成的任务；建造后立即变化。</p>' +
       '<p><b>高级减产</b>：高级建筑（衣服 / 家具 / 药品 / 教育）需要基础资源。食物、原料、电力、水每缺 1 项，高级产出 -25%；缺 2 项 -50%，缺 3 项 -75%，四项全缺停产。部分减产仍按原高级投入计算，停产时才暂停额外基础消耗；资源卡会标「低阶不足·产出 N%」。</p>' +
       '<p><b>劳力</b>：所有建筑最多占 1 人口；市场、仓库等部分蓝图 0 人口。启用建筑会占用人口，已占用 &gt; 人口时不能进入下回合。城市面板按类型用 − / + 调整启用数量，停用会同时停掉供给和额外消耗。</p>' +
-      '<p><b>任务</b>：开局 5 张，T' + G.REFRESH.join('/T') + ' 各刷新 3 张。任务栏不限张数；限时任务过期消失；恶性任务不接也占出生负担 A。接取前看「接取后预计满意度」和变化量。接取条件是每种占用资源当前供给 &gt; 已占用，0 产出资源不能接；任务金币与人口奖励已提高。</p>' +
+      '<p><b>净产出</b>：把占用人口视为负向产出。1 劳力占用 1 人，八项需求合计 3.55；满产净产出 = 产出总和 − 额外消耗总和 − 劳力 × 3.55。基础生产建筑约 +2.45，蓝图约 +4.45；实际高级产出还会受低阶短缺减产。市场价格另算，但数值按这条基准调整。</p>' +
+      '<p><b>建造预览</b>：点击建筑卡先打开预览，确认后才真正建造。预览显示金钱/劳力/满意度变化、资源供需变化，以及高级建筑当前和建造后的具体减产原因（哪项低阶资源、可用/需求/缺口）。</p>' +
+      '<p><b>城镇升级</b>：当前人口达到 P6 / P9 / P12 / P15 时可手动升级；每级消耗本回合建造行动，不花金钱、不占 24 座建筑上限、不降级。每次升级弹出 5 选 2 蓝图。声望不再给蓝图。</p>' +
+      '<p><b>任务</b>：开局 5 张，T' + G.REFRESH.join('/T') + ' 各刷新 3 张。任务栏不限张数；限时任务过期消失；恶性任务不接也占出生负担 A。接取前看「接取后预计满意度」、变化量和「接取后预计完成回合」；完成回合已经计入接取后新增占用造成的超额减速，预计超过 T30 会提前标红。接取条件是每种占用资源当前供给 &gt; 已占用，0 产出资源不能接。完成后在「金钱+人口」和「金钱+资源供给」中二选一，选择前不能继续。</p>' +
       '<p><b>终局</b>：第 30 回合按钮变为「结算本局」；接取前若预计完成回合超过 T' + G.MAX_TURNS + '，任务卡会标红提醒。</p>' +
       '<button class="btn primary" data-close-help="1" type="button">知道了</button>' +
       '</div>';
+  }
+
+  function advReasonLine(r) {
+    return '<li><b>' + esc(r.name) + '</b>：可用 <b>' + r.available + '</b> / 需求 <b>' + r.need +
+      '</b>（缺 ' + r.gap + '；人口 ' + r.popNeed + ' + 额外 ' + r.extraNeed + '）</li>';
+  }
+
+  function advReasonBlock(before, after) {
+    var br = before && before.advancedReasons ? before.advancedReasons : [];
+    var ar = after && after.advancedReasons ? after.advancedReasons : [];
+    var out = '<div class="bp-reasons' + (!br.length && !ar.length ? ' none' : '') + '">';
+    out += '<div class="bp-subhead">高级减产原因</div>';
+    if (!br.length && !ar.length) {
+      out += '<p class="bp-none">当前没有高级减产，八项资源均按其产出计算。</p></div>';
+      return out;
+    }
+    if (ar.length) {
+      out += '<p class="bp-warn">建造后高级产出 ' + after.advancedOutputPct + '%：</p><ul>' +
+        ar.map(advReasonLine).join('') + '</ul>';
+    } else {
+      out += '<p class="bp-good">建造后解除高级减产，高级产出恢复 100%。</p>';
+    }
+    if (br.length) {
+      out += '<p class="bp-before-label">建造前高级产出 ' + before.advancedOutputPct + '%：</p><ul class="bp-before">' +
+        br.map(advReasonLine).join('') + '</ul>';
+    }
+    out += '</div>';
+    return out;
+  }
+
+  function rewardHtml(S) {
+    var offer = S.rewardQueue && S.rewardQueue[0];
+    if (!offer) return '';
+    var sup = Object.keys(offer.sup || {}).map(function (k) {
+      return resName(k) + ' +' + offer.sup[k];
+    }).join('、') || '资源';
+    var more = S.rewardQueue.length > 1
+      ? '<p class="reward-more">还有 ' + (S.rewardQueue.length - 1) + ' 个完成任务的奖励待选择。</p>' : '';
+    return '<div class="modal-head"><h2>任务完成 · ' + offer.icon + ' ' + esc(offer.name) + '</h2>' +
+      '<p>奖励二选一：人口或永久资源供给。两者都包含金钱与声望，选择后立即生效。</p></div>' +
+      '<div class="reward-grid">' +
+      '<button class="reward-card" data-reward-choice="pop" type="button">' +
+      '<span class="reward-kicker">方案 A</span><b>人口 +' + offer.pop + '</b>' +
+      '<span class="reward-sub">劳力增加，同时八项需求增加</span>' +
+      '<span class="reward-common">金 +' + offer.money + ' · 声望 +' + offer.rep + '</span>' +
+      '<span class="reward-btn">选择人口</span></button>' +
+      '<button class="reward-card" data-reward-choice="sup" type="button">' +
+      '<span class="reward-kicker">方案 B</span><b>' + sup + '</b>' +
+      '<span class="reward-sub">永久供给增加，不占建筑与劳力</span>' +
+      '<span class="reward-common">金 +' + offer.money + ' · 声望 +' + offer.rep + '</span>' +
+      '<span class="reward-btn">选择资源</span></button>' +
+      '</div>' + more;
+  }
+
+  function buildPreviewHtml(id) {
+    var p = G.buildPreview(id);
+    if (!p || !p.ok) {
+      return '<div class="modal-head"><h2>无法建造</h2><p>' + esc(p && p.error ? p.error : '预览失败') + '</p></div>' +
+        '<div class="modal-actions"><button class="btn ghost" data-close-build="1" type="button">关闭</button></div>';
+    }
+    var d = p.def;
+    var b = p.before;
+    var a = p.after;
+    var rows = G.RES.map(function (r) {
+      var s0 = b.supply[r.key] || 0;
+      var s1 = a.supply[r.key] || 0;
+      var d0 = b.demand[r.key] || 0;
+      var d1 = a.demand[r.key] || 0;
+      if (Math.abs(s1 - s0) < 0.0001 && Math.abs(d1 - d0) < 0.0001) return '';
+      return '<div class="bp-row"><span class="bp-name">' + r.name + '</span>' +
+        '<span>供给 ' + s0 + ' → <b>' + s1 + '</b></span>' +
+        '<span>需求 ' + d0 + ' → <b>' + d1 + '</b></span></div>';
+    }).join('');
+    var nextTxt = p.next
+      ? '<div class="bp-next">下回合预测：满意度 <b>' + fmt1(p.next.sat) + '</b> · 声望 +' + p.next.repGain +
+        ' · 高级产出 ' + p.next.advancedOutputPct + '%</div>'
+      : '<div class="bp-next muted">下回合预测不可用（可能受劳力或蓝图限制）。</div>';
+    var net = G.buildingNet(d);
+    var netTxt = net === null ? '' :
+      '<div class="bp-net">满产净产出 <b>' + fmtNet(net) + '</b> / 回合' +
+      '<span>已扣除额外消耗与 1 人占用 3.55 点（食物 1、原料/电/水各 0.5、衣服 0.4、家具 0.3、药品 0.2、教育 0.15）；这是横向比较口径，实际供需仍按产出与人口需求分别计算，不会重复扣一次。</span></div>';
+    return '<div class="modal-head"><h2>建造预览 · ' + d.icon + ' ' + d.name + '</h2>' +
+      '<p>确认后立即建造，本回合不能再建。花费 ' + d.cost + ' 金 · 劳力 ' + d.labor + ' · 建成后不可撤销。</p></div>' +
+      '<div class="build-preview">' +
+      '<div class="bp-stats">' +
+      '<span>金钱 <b>' + p.moneyBefore + ' → ' + p.moneyAfter + '</b></span>' +
+      '<span>劳力 <b>' + p.laborBefore + ' → ' + p.laborAfter + ' / ' + a.pop + '</b></span>' +
+      '<span>满意度 <b>' + fmt1(b.sat) + ' → ' + fmt1(a.sat) + '</b></span>' +
+      '</div>' +
+      netTxt +
+      '<div class="bp-compare"><div class="bp-subhead">资源变化</div>' +
+      (rows || '<p class="bp-none">建造后供需无明显变化。</p>') + '</div>' +
+      nextTxt +
+      advReasonBlock(b, a) +
+      '<div class="modal-actions">' +
+      '<button class="btn ghost" data-close-build="1" type="button">取消</button>' +
+      '<button class="btn primary" data-confirm-build="' + d.id + '" type="button">确认建造</button>' +
+      '</div></div>';
   }
 
   function renderModal(S, best) {
@@ -441,28 +604,59 @@
       modal.classList.remove('hidden');
       return;
     }
+    if (buildPreviewId) {
+      card.innerHTML = buildPreviewHtml(buildPreviewId);
+      modal.classList.remove('hidden');
+      return;
+    }
+    if (S.rewardQueue && S.rewardQueue.length) {
+      card.innerHTML = rewardHtml(S);
+      modal.classList.remove('hidden');
+      return;
+    }
     if (S.pendingDraw) {
       var d = S.pendingDraw;
-      var title = d.opening ? '开局蓝图 · 先看目标' : '声望 ' + d.node + ' · 蓝图';
+      var pickCount = d.count || 1;
+      var key = (d.source || 'opening') + ':' + (d.level || '') + ':' + d.options.join(',');
+      if (drawKey !== key) {
+        drawKey = key;
+        drawPick = [];
+      }
+      if (drawPick.length > pickCount) drawPick = drawPick.slice(0, pickCount);
+      var title = d.source === 'town'
+        ? '城镇升级 Lv.' + d.level + ' · 5 选 2'
+        : '开局蓝图 · 先看目标';
+      var intro = d.source === 'town'
+        ? '从 5 张中选 2 张解锁；本次城镇升级已消耗本回合建造行动。选够 2 张后才能确认。'
+        : '从 3 张中选 1 张解锁。蓝图只是建筑类型，建造时仍要花金钱和劳力。选完才能继续。';
       var html = '<div class="modal-head"><h2>' + title + '</h2>' +
-        '<p>从 3 张中选 1 张解锁。蓝图只是建筑类型，建造时仍要花金钱和劳力。选完才能继续。</p></div>';
+        '<p>' + intro + '</p></div>';
       if (d.opening) html += introHtml();
-      html += '<div class="pick-grid">';
+      html += '<div class="pick-grid' + (d.options.length > 3 ? ' five' : '') + '">';
       html += d.options.map(function (id) {
         var b = G.buildingDef(id);
         var extra = extraText(b);
         var note = bpNote(id);
-        return '<button class="pick-card" data-pick="' + id + '" type="button">' +
+        var selected = drawPick.indexOf(id) >= 0;
+        var btnLabel = pickCount > 1 ? (selected ? '已选' : '选择') : '选择';
+        var net = G.buildingNet(b);
+        return '<button class="pick-card' + (selected ? ' selected' : '') + '" data-pick="' + id + '" type="button">' +
           '<span class="pick-icon">' + b.icon + '</span>' +
           '<h3>' + b.name + '</h3>' +
           '<p>' + outText(b) + (extra ? '<br><span class="muted">耗 ' + extra + '</span>' : '') + '</p>' +
+          (net === null ? '' : '<span class="pick-net">满产净 ' + fmtNet(net) + '</span>') +
           (note ? '<p class="pick-note">' + note + '</p>' : '') +
           '<span class="pick-req">劳力 ' + b.labor + ' · 上限 ' + b.max + '</span>' +
           '<span class="pick-cost">' + b.cost + ' 金</span>' +
-          '<span class="pick-btn">选择</span>' +
+          '<span class="pick-btn">' + btnLabel + '</span>' +
           '</button>';
       }).join('');
       html += '</div>';
+      if (pickCount > 1) {
+        html += '<div class="pick-foot"><span class="pick-count">已选 ' + drawPick.length + ' / ' + pickCount + '</span>' +
+          '<button class="btn primary" data-confirm-draw="1" type="button"' +
+          (drawPick.length === pickCount ? '' : ' disabled') + '>确认选择</button></div>';
+      }
       card.innerHTML = html;
       modal.classList.remove('hidden');
       return;
@@ -475,6 +669,7 @@
         '<div class="end-rep">' + f.rep + '<small>声望</small></div>' +
         '<div class="end-sub">最终得分只看累计声望' + (isBest ? ' · 本机最佳' : '') + '</div>' +
         '<div class="end-grid">' +
+        '<div class="end-stat"><b>Lv.' + (f.level || 0) + '</b><span>城镇</span></div>' +
         '<div class="end-stat"><b>' + f.pop + '</b><span>人口</span></div>' +
         '<div class="end-stat"><b>' + f.buildings + '</b><span>建筑</span></div>' +
         '<div class="end-stat"><b>' + f.tasksDone + '</b><span>完成任务</span></div>' +
@@ -502,6 +697,26 @@
     render();
   }
 
+  function openBuildPreview(id) {
+    var st = G.buildStatus(id);
+    if (!st.ok) {
+      toast(st.reason);
+      return;
+    }
+    buildPreviewId = id;
+    render();
+  }
+
+  function closeBuildPreview() {
+    buildPreviewId = null;
+    render();
+  }
+
+  function confirmBuild(id) {
+    buildPreviewId = null;
+    build(id);
+  }
+
   function setCount(defId, delta) {
     var S = G.getState();
     var list = S.buildings.filter(function (b) { return b.defId === defId; });
@@ -523,14 +738,65 @@
     render();
   }
 
-  function pick(id) {
-    var r = G.chooseBlueprint(id);
+  function chooseTaskReward(choice) {
+    var r = G.chooseReward(choice);
     if (!r.ok) toast(r.error);
+    else {
+      var o = r.offer;
+      var supTxt = Object.keys(o.sup || {}).map(function (k) { return resName(k) + ' +' + o.sup[k]; }).join('、');
+      toast(choice === 'pop'
+        ? o.name + '：人口 +' + o.pop + ' · 金 +' + o.money
+        : o.name + '：' + supTxt + ' · 金 +' + o.money);
+    }
+    render();
+  }
+
+  function pick(id) {
+    var S = G.getState();
+    if (!S || !S.pendingDraw) return;
+    if ((S.pendingDraw.count || 1) === 1) {
+      var r = G.chooseBlueprint(id);
+      if (!r.ok) toast(r.error);
+      drawPick = [];
+      drawKey = null;
+      render();
+      return;
+    }
+    var i = drawPick.indexOf(id);
+    if (i >= 0) {
+      drawPick.splice(i, 1);
+    } else if (drawPick.length < S.pendingDraw.count) {
+      drawPick.push(id);
+    }
+    render();
+  }
+
+  function confirmDraw() {
+    var S = G.getState();
+    if (!S || !S.pendingDraw) return;
+    var r = G.chooseBlueprints(drawPick);
+    if (!r.ok) {
+      toast(r.error);
+      return;
+    }
+    drawPick = [];
+    drawKey = null;
+    render();
+  }
+
+  function upgradeTown() {
+    var r = G.upgradeTown();
+    if (!r.ok) toast(r.error);
+    drawPick = [];
+    drawKey = null;
     render();
   }
 
   function newGame(seed) {
     showHelp = false;
+    buildPreviewId = null;
+    drawPick = [];
+    drawKey = null;
     taskFilter = 'all';
     try {
       var btns = document.querySelectorAll('#taskFilter .filter-btn');
@@ -550,11 +816,15 @@
   function init() {
     $('btnNext').addEventListener('click', nextTurn);
     $('btnRestart').addEventListener('click', function () { restart(false); });
-    $('btnHelp').addEventListener('click', function () { showHelp = true; render(); });
+    $('btnHelp').addEventListener('click', function () { buildPreviewId = null; showHelp = true; render(); });
 
     $('buildList').addEventListener('click', function (e) {
       var btn = e.target.closest('[data-build]');
-      if (btn) build(btn.getAttribute('data-build'));
+      if (btn) openBuildPreview(btn.getAttribute('data-build'));
+    });
+    $('townUpgrade').addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-town-upgrade]');
+      if (btn) upgradeTown();
     });
     $('cityList').addEventListener('click', function (e) {
       var btn = e.target.closest('[data-step]');
@@ -581,8 +851,16 @@
     $('modalCard').addEventListener('click', function (e) {
       var helpClose = e.target.closest('[data-close-help]');
       if (helpClose) { showHelp = false; render(); return; }
+      var buildClose = e.target.closest('[data-close-build]');
+      if (buildClose) { closeBuildPreview(); return; }
+      var buildConfirm = e.target.closest('[data-confirm-build]');
+      if (buildConfirm) { confirmBuild(buildConfirm.getAttribute('data-confirm-build')); return; }
       var pickBtn = e.target.closest('[data-pick]');
       if (pickBtn) { pick(pickBtn.getAttribute('data-pick')); return; }
+      var rewardBtn = e.target.closest('[data-reward-choice]');
+      if (rewardBtn) { chooseTaskReward(rewardBtn.getAttribute('data-reward-choice')); return; }
+      var drawConfirm = e.target.closest('[data-confirm-draw]');
+      if (drawConfirm) { confirmDraw(); return; }
       var restartBtn = e.target.closest('[data-restart]');
       if (restartBtn) { restart(true); }
     });

@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>城建设计局 · 30 回合经营 v3.5.1</title>
-  <link rel="stylesheet" href="style.css?v=351">
+  <title>城建设计局 · 30 回合经营 v3.8.1</title>
+  <link rel="stylesheet" href="style.css?v=381">
 </head>
 <body>
   <header class="hud">
@@ -23,6 +23,7 @@
       <div class="stat"><span class="k">声望</span><span class="v rep" id="statRep">0</span><small class="stat-sub" id="statRepNext">下回合声望 +0</small></div>
       <div class="stat"><span class="k">劳力 已占/人口</span><span class="v labor" id="statLabor">0 / 5</span></div>
       <div class="stat"><span class="k">城市</span><span class="v" id="statCity">0 / 24</span></div>
+      <div class="stat"><span class="k">城镇</span><span class="v town" id="statTown">Lv.0</span><small class="stat-sub" id="statTownNext">下阶 P6</small></div>
       <div class="stat"><span class="k">最佳声望</span><span class="v best" id="statBest">—</span></div>
     </div>
   </header>
@@ -69,6 +70,7 @@
           <h2>建造</h2>
           <span class="hint" id="buildHint">每回合 1 次</span>
         </div>
+        <div id="townUpgrade" class="town-upgrade"></div>
         <div id="buildList" class="build-list"></div>
       </section>
 
@@ -95,7 +97,7 @@
   </div>
   <div id="toast" class="toast"></div>
 
-  <script src="game.js?v=351"></script>
-  <script src="ui.js?v=351"></script>
+  <script src="game.js?v=381"></script>
+  <script src="ui.js?v=381"></script>
 </body>
 </html>

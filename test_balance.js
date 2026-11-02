@@ -7,13 +7,28 @@ function autoPlay(seed) {
   const s = G.newGame(seed);
   let guard = 0;
   while (!s.over && guard++ < 300) {
+    if (s.rewardQueue && s.rewardQueue.length) {
+      G.chooseReward(G.laborAvailable() <= 1 ? 'pop' : 'sup');
+      continue;
+    }
     if (s.pendingDraw) {
-      G.chooseBlueprint(s.pendingDraw.options[0]);
+      const pc = s.pendingDraw.count || 1;
+      G.chooseBlueprints(s.pendingDraw.options.slice(0, pc));
+      continue;
+    }
+    if (!s.hasBuilt && s.turn <= 24 && G.townUpgradeStatus().ok) {
+      G.upgradeTown();
       continue;
     }
     if (!s.hasBuilt) {
+      let built = false;
       for (const id of PRIORITY) {
-        if (G.buildStatus(id).ok) { G.build(id); break; }
+        if (G.buildStatus(id).ok) { G.build(id); built = true; break; }
+      }
+      if (!built) {
+        for (const id of s.unlocked) {
+          if (G.buildStatus(id).ok) { G.build(id); built = true; break; }
+        }
       }
     }
     const tasks = s.board.filter(x => G.taskDef(x.defId).type !== 'malignant');
@@ -40,6 +55,7 @@ for (const seed of [1, 7, 42, 99, 2026]) {
     money: s.money,
     pop: s.pop,
     sat: s.sat,
+    level: s.townLevel,
     buildings: s.buildings.length,
     unlocked: s.unlocked.length,
     tasksDone: s.stats.tasksDone,
