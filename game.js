@@ -1,5 +1,5 @@
 /*
- * 城建设计局 · 局内 v3.9.3 引擎
+ * 城建设计局 · v3.10.0 引擎
  * 纯逻辑、无 DOM，可在 Node 里直接 require 测试。
  *
  * 核心：30 回合 / 每回合 1 次建造或城镇升级 / 8 资源 / 人口常驻占用劳力 /
@@ -26,6 +26,31 @@
   var NODES = [];
   var REFRESH = [6, 11, 16, 21, 26];
   var START_TASKS = ['reclaim', 'waterworks', 'mining', 'relief', 'prospect'];
+
+  var SCENARIOS = [
+    { id: 'town', name: '安居小镇', icon: '🏘', tag: '教学',
+      description: '补足基础供给，接纳新人口，让城市安稳运转。',
+      requirements: [
+        { key: 'pop', label: '人口', target: 9 },
+        { key: 'sat', label: '满意度', target: 20 }
+      ] },
+    { id: 'agriculture', name: '农业基地', icon: '🌾', tag: '农业专精',
+      description: '扩展农业供给，在满足城市与任务需求后保持充足余量。',
+      requirements: [
+        { key: 'pop', label: '人口', target: 15 },
+        { key: 'balance', resource: 'food', label: '食物净余量', target: 18 },
+        { key: 'sat', label: '满意度', target: 35 }
+      ] },
+    { id: 'education', name: '学府之城', icon: '🎓', tag: '教育专精',
+      description: '发展教育，配好电力和水，在满足城市需求后提供额外教育。',
+      requirements: [
+        { key: 'pop', label: '人口', target: 12 },
+        { key: 'balance', resource: 'education', label: '教育净余量', target: 4 },
+        { key: 'sat', label: '满意度', target: 50 }
+      ] }
+  ];
+  var SCENARIO_BY_ID = Object.create(null);
+  SCENARIOS.forEach(function (s) { SCENARIO_BY_ID[s.id] = s; });
 
   var RES = [
     { key: 'food',      name: '食物', icon: '🌾', group: 'basic',    base: 3, demand: 1.0 },
@@ -188,6 +213,27 @@
     }
     if (pop > 25) sum += (pop - 25) * 1.5;
     return round2(sum);
+  }
+
+  /* 目标始终使用完整供需快照；不改声望、不锁定提前达标的状态。 */
+  function evaluateScenario(id, c) {
+    var def = SCENARIO_BY_ID[id];
+    if (!def) return null;
+    var conditions = def.requirements.map(function (r) {
+      var current = r.key === 'pop' ? c.pop : r.key === 'sat' ? c.sat :
+        round2(c.supply[r.resource] - c.demand[r.resource] - c.occ[r.resource]);
+      return {
+        key: r.key, resource: r.resource || null, label: r.label,
+        current: current, target: r.target, met: current >= r.target,
+        shortfall: round2(Math.max(0, r.target - current))
+      };
+    });
+    return { id: id, name: def.name, conditions: conditions,
+      cleared: conditions.every(function (r) { return r.met; }) };
+  }
+
+  function goalStatus(c) {
+    return state && state.scenarioId ? evaluateScenario(state.scenarioId, c || compute()) : null;
   }
 
   /* ---------------- log ---------------- */
@@ -752,8 +798,10 @@
     try {
       var r = endTurn();
       if (!r || !r.ok) return null;
+      var projection = copy.over ? compute() : copy.last;
+      if (copy.over) { projection.repGain = 0; projection.popLoss = 0; }
       return {
-        last: copy.last,
+        last: projection,
         final: copy.final || null,
         over: !!copy.over,
         turn: copy.turn,
@@ -778,7 +826,8 @@
       if (!a.ok) return null;
       var r = endTurn();
       if (!r || !r.ok) return null;
-      after = copy.last;
+      after = copy.over ? compute() : copy.last;
+      if (copy.over) { after.repGain = 0; after.popLoss = 0; }
     } finally {
       state = real;
     }
@@ -937,14 +986,18 @@
       return { ok: false, error: '劳力不足：已占用 ' + used + ' / 人口 ' + state.pop + '，请先停用建筑' };
     }
     if (state.turn >= MAX_TURNS) {
+      var current = compute();
+      var goal = goalStatus(current);
       state.over = true;
       state.final = {
-        rep: state.rep, pop: state.pop, sat: state.sat,
+        rep: state.rep, pop: state.pop, sat: current.sat,
         buildings: state.buildings.length, tasksDone: state.stats.tasksDone,
         money: state.money, built: state.stats.built, popLost: state.stats.popLost,
-        level: state.townLevel
+        level: state.townLevel, scenarioId: state.scenarioId || null,
+        cleared: goal ? goal.cleared : null, goal: goal
       };
-      log('30 回合结束。最终声望 ' + state.rep + '。', 'end');
+      log((goal ? goal.name + '：' + (goal.cleared ? '通关' : '未通关') + '。' : '自由经营结束。') +
+        '最终声望 ' + state.rep + '。', 'end');
       return { ok: true, over: true };
     }
     var before = state.board.length;
@@ -963,13 +1016,16 @@
 
   /* ---------------- new game ---------------- */
 
-  function newGame(seed) {
+  function newGame(seed, scenarioId) {
+    var selected = scenarioId === undefined ? 'town' : scenarioId;
+    if (!SCENARIO_BY_ID[selected]) throw new Error('未知关卡：' + selected);
     var s = (seed === undefined || seed === null || seed === '') ? Math.floor(Math.random() * 1000000007) : Number(seed);
     if (!isFinite(s)) s = 1;
     s = s >>> 0;
     state = {
       version: SAVE_VERSION,
       seed: s,
+      scenarioId: selected,
       rngState: s,
       turn: 1,
       money: START_MONEY,
@@ -995,7 +1051,7 @@
     };
     START_TASKS.forEach(function (id) { addTask(id, 1); });
     startTurn();
-    log('城市开局：P5、300 金，满意度 0。先补基础供给。', 'start');
+    log(SCENARIO_BY_ID[selected].name + '开局：P5、300 金。先补基础供给，T30 验收建设目标。', 'start');
     openDraw('opening', { count: 1, options: 3 });
     return state;
   }
@@ -1019,7 +1075,22 @@
         !Array.isArray(s.active) || !Array.isArray(s.unlocked)) {
       return { ok: false, error: '存档字段不完整' };
     }
+    if (s.scenarioId != null && !SCENARIO_BY_ID[s.scenarioId]) {
+      return { ok: false, error: '存档关卡无效' };
+    }
+    if (s.scenarioId == null && s.final && s.final.scenarioId != null) {
+      return { ok: false, error: '存档关卡与结算不一致' };
+    }
+    if (s.scenarioId && s.final && s.final.scenarioId !== s.scenarioId) {
+      return { ok: false, error: '存档关卡与结算不一致' };
+    }
     state = s;
+    if (state.scenarioId == null) state.scenarioId = null;
+    if (!state.scenarioId && state.final) {
+      state.final.scenarioId = null;
+      state.final.cleared = null;
+      state.final.goal = null;
+    }
     if (!state.stats) state.stats = { tasksDone: 0, built: 0, popLost: 0, townUpgrades: 0 };
     if (typeof state.stats.townUpgrades !== 'number') state.stats.townUpgrades = 0;
     if (!state.spawnedNormals) state.spawnedNormals = { 1: [], 2: [], 3: [] };
@@ -1036,6 +1107,9 @@
     importState: importState,
     forecast: forecast,
     compute: compute,
+    SCENARIOS: JSON.parse(JSON.stringify(SCENARIOS)),
+    evaluateScenario: evaluateScenario,
+    goalStatus: goalStatus,
     forecastTask: forecastTask,
     SAVE_VERSION: SAVE_VERSION,
     build: build,
