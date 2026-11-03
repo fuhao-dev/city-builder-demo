@@ -3,20 +3,22 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>城建设计局 · 多样困难 v3.15.1</title>
+  <title>城镇建设局 · 城市大厅 v3.16.1</title>
   <meta name="theme-color" content="#0b1220">
   <link rel="icon" href="favicon.ico?v=3" sizes="any">
   <link rel="icon" type="image/png" sizes="32x32" href="assets/icons/favicon-32.png?v=3">
   <link rel="icon" type="image/png" sizes="192x192" href="assets/icons/icon-192.png?v=3">
   <link rel="apple-touch-icon" sizes="180x180" href="assets/icons/apple-touch-icon.png?v=3">
-  <link rel="stylesheet" href="style.css?v=3151a">
+  <link rel="stylesheet" href="style.css?v=3161a">
 </head>
 <body>
+  <main id="homeScreen" class="home-screen" aria-label="城市大厅"></main>
+  <div id="gameScreen" class="hidden">
   <header class="hud">
     <div class="hud-brand">
       <img class="logo" src="assets/icons/icon-192.png?v=3" width="40" height="40" alt="">
-      <div>
-        <h1>城建设计局</h1>
+      <div class="brand-lockup">
+        <h1><img class="wordmark" src="assets/brand/town-construction-bureau-wordmark.png?v=3161a" width="216" height="72" alt="城镇建设局"></h1>
         <p id="gameSubtitle">30 回合 · 达成建设目标才通关</p>
       </div>
     </div>
@@ -26,12 +28,19 @@
       <div class="stat"><span class="k">人口</span><span class="v" id="statPop">5</span></div>
       <div class="stat"><span class="k">满意度</span><span class="v sat" id="statSat">0.0</span></div>
       <div class="stat"><span class="k">声望</span><span class="v rep" id="statRep">0</span><small class="stat-sub" id="statRepNext">下回合声望 +0</small></div>
-      <div class="stat"><span class="k">劳力 已占/可工作</span><span class="v labor" id="statLabor">0 / 5</span></div>
+      <div class="stat"><span class="k">劳力 已用/上限</span><span class="v labor" id="statLabor">0 / 5</span></div>
       <div class="stat"><span class="k">城市</span><span class="v" id="statCity">0 / 24</span></div>
       <div class="stat"><span class="k">城镇</span><span class="v town" id="statTown">Lv.0</span><small class="stat-sub" id="statTownNext">下阶 P6</small></div>
       <div class="stat"><span class="k">最佳声望</span><span class="v best" id="statBest">—</span></div>
     </div>
   </header>
+  <aside id="tutorialPanel" class="tutorial-panel hidden" aria-label="新手引导" aria-live="polite"></aside>
+  <nav id="cityNav" class="city-nav" aria-label="城市面板">
+    <button class="on" data-city-tab="resources" type="button">资源</button>
+    <button data-city-tab="tasks" type="button">任务</button>
+    <button data-city-tab="build" type="button">建造</button>
+    <button data-city-tab="city" type="button">城市</button>
+  </nav>
 
   <main class="layout">
     <section class="panel goal-panel" id="goalPanel" aria-label="本关建设目标">
@@ -42,7 +51,7 @@
       <section class="panel res-panel">
         <div class="panel-head">
           <h2>资源</h2>
-          <span class="hint">当前 → 下回合预测 · 建造后更新</span>
+          <button id="btnResourceDetail" class="text-btn" type="button" aria-pressed="false">详细数据</button>
         </div>
         <div id="resGrid" class="res-grid"></div>
         <div id="satMath" class="sat-math"></div>
@@ -62,6 +71,10 @@
         <h2>任务</h2>
         <span class="hint" id="taskHint">任务栏 4 · 进行中 0</span>
       </div>
+      <div id="activeSection" class="active-section hidden">
+        <div class="sub-head">进行中 <span id="activeCount">0</span></div>
+        <div id="activeList" class="active-list"></div>
+      </div>
       <div id="taskFilter" class="filter-bar">
         <button data-filter="all" class="filter-btn on" type="button">全部</button>
         <button data-filter="normal" class="filter-btn" type="button">普通</button>
@@ -69,8 +82,6 @@
         <button data-filter="malignant" class="filter-btn" type="button">恶性</button>
       </div>
       <div id="boardList" class="board-list"></div>
-      <div class="sub-head">进行中 <span id="activeCount">0</span></div>
-      <div id="activeList" class="active-list"></div>
     </section>
 
     <div class="col col-right">
@@ -88,29 +99,31 @@
           <h2>日志</h2>
           <span class="hint">最近 40 条</span>
         </div>
-        <div id="logList" class="log-list"></div>
+        <details><summary>展开最近记录</summary><div id="logList" class="log-list"></div></details>
       </section>
     </div>
   </main>
 
   <footer class="action-bar">
     <button id="btnNext" class="btn primary" type="button">进入下回合 →</button>
-    <button id="btnRestart" class="btn ghost" type="button">选关</button>
+    <button id="btnRestart" class="btn ghost" type="button">主界面</button>
     <button id="btnGrowth" class="btn ghost" type="button">成长</button>
-    <button id="btnHelp" class="btn ghost" type="button">规则</button>
+    <button id="btnHelp" class="btn ghost" type="button">帮助</button>
     <span class="save-note" id="saveNote">自动存档</span>
     <div class="action-hint" id="actionHint"></div>
   </footer>
+  </div>
 
   <div id="modal" class="modal hidden">
-    <div id="modalCard" class="modal-card"></div>
+    <div id="modalCard" class="modal-card" role="dialog" aria-modal="true" aria-label="游戏操作" tabindex="-1"></div>
   </div>
   <button id="btnShowModal" class="btn primary show-modal hidden" type="button">返回选择 · 资源/人口</button>
   <div id="toast" class="toast"></div>
 
-  <script src="game.js?v=3151a"></script>
-  <script src="progress.js?v=3151a"></script>
-  <script src="loadouts.js?v=3151a"></script>
-  <script src="ui.js?v=3151a"></script>
+  <script src="game.js?v=3161a"></script>
+  <script src="progress.js?v=3161a"></script>
+  <script src="loadouts.js?v=3161a"></script>
+  <script src="onboarding.js?v=3161a"></script>
+  <script src="ui.js?v=3161a"></script>
 </body>
 </html>
