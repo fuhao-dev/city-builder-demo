@@ -1,4 +1,4 @@
-# 城建设计局 · 成长奖励 v3.14.0 Demo
+# 城建设计局 · 成长配装 v3.14.0 Demo
 
 在线试玩：https://fuhao-dev.github.io/city-builder-demo/
 
@@ -15,10 +15,15 @@
 - 本机最佳最终声望存在 `localStorage`，键名 `dsh_city_best_rep_v33`；刷新不会丢。
 - 本机通关记录和最佳通关声望按“关卡 × 难度 × BUFF 组合 × 有效成长功能”保存在 `dsh_city_campaign_v2`；组合按 ID 排序，同一组合不会因勾选顺序产生多份成绩。刷新能力和新增蓝图池分别区分成绩；旧单 BUFF 成绩原键保留，旧 `v1` 成绩只迁入普通＋无加成。
 - 局外累计声望账本仍存于 `dsh_city_growth_v1`，内容升级为 v2 奖励明细。旧累计不增加、不清零，已解锁的旧权益保留；旧在途城市保留人口、金钱、蓝图、RNG 和剩余刷新次数，完成后按新奖励结算。旧已结束城市不补通关/首通奖励，历史通关视为对应难度已领首通。没有关卡字段的旧存档仍按自由经营恢复。
+- BUFF 方案使用独立键 `dsh_city_loadouts_v1`，保存 3 个可命名槽位，只记录名称和 BUFF 组合，不修改城市、成绩或成长账本。单个损坏槽位恢复为空，其余方案保留；方案仅存于当前浏览器。
 
 ## 开局配置
 
 流程为“选择关卡 → 选择难度与多个 BUFF → 确认开局 → 选择蓝图”。开局前展示已用/总额度、金钱、人口、蓝图数量及资源需求；取消选择可返回原城市。每种 BUFF 最多携带一次，可不选，总消耗不能超过额度。配置与成长在本局开局时固定，之后解锁在下一局生效，刷新恢复不会补发奖励或刷新次数。
+
+展开“我的 BUFF 方案”，填写名称并保存当前组合；已有方案可覆盖。载入时只替换 BUFF，保留当前难度，并重新检查解锁权限和额度；不会静默删减方案中的 BUFF。名称最多 16 字，空名称使用默认名；无加成也可保存。查看、命名、保存或载入都不替换当前城市，点击“开始本局”才生效。
+
+“本关建设建议”显示资源配套重点及一种当前可用的组合，可手动采用后继续调整，不自动覆盖个人方案。建议不要求未来解锁，不保证所有种子通关。刚解锁时的具体对比、困难关卡的限制与复现方法见 [BALANCE_UNLOCKS.md](BALANCE_UNLOCKS.md)。
 
 | 难度 | 效果 |
 |---|---|
@@ -147,7 +152,9 @@
 - `test_run_config.js`：240 条断言，覆盖原有 8 种配置、精度、预测与结算一致、建筑投入不受倍率影响、粮食持续供给、旧存档不补发、非法配置不改变城市，以及分配置成绩和迁移。
 - `test_growth.js`：3480 条断言，检查 160 种合法配置，以及额度、刷新、随机池、唯一入账、旧档和成长成绩。
 - `test_rewards.js`：484 条断言，覆盖十二关通关/首通奖励、困难双倍、跨 BUFF 首通去重、失败、冻结明细、旧账本/成绩迁移及旧权益保留。
-- `test_unlocks.js`：3012 条断言，覆盖后期 222 种合法配置、新 BUFF 统一计算、第二次刷新、十二关边界、锁定关卡导入与刷新权限快照。六组测试合计 **8007 条断言**。
+- `test_unlocks.js`：3012 条断言，覆盖后期 222 种合法配置、新 BUFF 统一计算、第二次刷新、十二关边界、锁定关卡导入与刷新权限快照。
+- `loadouts.js` / `test_loadouts.js`：独立的方案与建议模块；2298 条断言覆盖三个槽位、损坏数据、名称、覆盖/载入、当前难度保留、锁定与超额度拒绝、旧权限及 504 个合法建议。七组测试合计 **10305 条断言**。
+- `simulate_unlocks.js`：按 2000/4500/5000 实际成长验证新关卡，每项建议与备选分别跑固定种子，输出完整合法行动和失败目标分布；详见 [BALANCE_UNLOCKS.md](BALANCE_UNLOCKS.md)。
 - `simulate_progression.js`：从零累计的完整账户路线，使用真实行动、真实奖励账本和逐局存档往返；涵盖多关首通、普通后挑战困难、重复小镇和仅基础建筑四种路线，以及建设/蓝图优先两类携带组合。
 - `simulate_scenarios.js`：可复现的目标策略模拟，含常规/仅基础建筑两种路线、独立目标复核、存档往返与合法行动记录。后 3 关以新种子 40001–40100 验证 600 局：工业、康养两种路线均 100/100；都会常规 100/100、仅基础建筑 90/100。自动策略结果不代表真人通关率或最优解。
 - v3.12.0 配置矩阵：固定既有策略，以种子 50001–50010 验证六关 × 两难度 × 四种 BUFF，共 480 局，477 局通关；普通 240/240，困难 237/240。三次失败均为教育净余量 3.90 未到 4，其中两次改用 `focused` 策略后通过。不把策略失败解释为种子无解。另重放 v3.11.0 的六关 × 三种子，普通＋无加成的供需、城市状态与结算逐项一致。
@@ -157,6 +164,8 @@ v3.14.0 验证：24 个零声望账户 × 12 局，共 288 局完成并验证真
 
 浏览器按新规则实际完成普通小镇通关（162＋50＋100＝312），核验刷新去重、首通预览、困难通关双倍、锁定关卡和 390px 手机布局；原失败对局的目标建议与零额外奖励验证保留，失败奖励另有引擎回归覆盖。
 
+配装验证：新种子 93001–93010，在三个成长节点共完成 360 局；普通目标通过 144/180，困难 76/180。4500 时普通宜居建议 10/10、首府 5/10；困难宜居与首府仍是明显挑战。固定策略未使用蓝图刷新，不据此推断真人通关率或种子无解。浏览器验证了三槽位命名/覆盖、刷新保留、跨关卡载入、难度保留、取消配置后原城市不变和 390px 单列布局，控制台无错误。
+
 ```bash
 node test_game.js
 node test_scenarios.js
@@ -164,9 +173,11 @@ node test_run_config.js
 node test_growth.js
 node test_rewards.js
 node test_unlocks.js
+node test_loadouts.js
 node test_balance.js
 node simulate_progression.js --accounts=3 --games=12 --output=progression.json
 node simulate_progression.js --accounts=2 --games=12 --start=81001 --policies=tour,challenge,town --output=progression-heldout.json
+node simulate_unlocks.js --seeds=10 --start=93001 --output=unlock-results.json
 node simulate_scenarios.js --seeds=100 --start=40001 --levels=industry,health,metropolis
 node simulate_scenarios.js --seeds=10 --start=50001 --matrix=1 --mode=all
 node simulate_scenarios.js --seeds=10 --levels=education --difficulty=hard --buff=water_saving --mode=all
@@ -177,7 +188,7 @@ node simulate_scenarios.js --seeds=10 --start=76001 --growth=7500 --buffs=civic_
 
 `--mode=all` 只跑可使用已解锁建筑的常规路线，`--mode=basic` 只跑基础建筑；不传 `--mode` 时两条路线都跑。`--matrix=1` 遍历指定成长阶段全部合法组合，`--growth` 设置测试用累计声望，`--buffs` 指定组合。不指定关卡时仅模拟该成长阶段已解锁的关卡；显式指定未解锁关卡会拒绝。
 
-规则全文见 [DESIGN.md](DESIGN.md)（v3.14.0，§2.4 为本版新增与迁移规则）。
+规则全文见 [DESIGN.md](DESIGN.md)（v3.14.0，§2.4–2.5 为本版成长、迁移与配装规则）。
 
 ## 还没做
 

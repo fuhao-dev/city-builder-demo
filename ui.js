@@ -4,12 +4,14 @@
 
   var G = window.DSHGame;
   var P = window.DSHProgress;
+  var L = window.DSHLoadouts;
   var $ = function (id) { return document.getElementById(id); };
   var BEST_KEY = 'dsh_city_best_rep_v33';
   var SAVE_KEY = 'dsh_city_save_v34';
   var CAMPAIGN_KEY = 'dsh_city_campaign_v2';
   var LEGACY_CAMPAIGN_KEY = 'dsh_city_campaign_v1';
   var GROWTH_KEY = 'dsh_city_growth_v1';
+  var LOADOUT_KEY = 'dsh_city_loadouts_v1';
   var toastTimer = null;
   var taskFilter = 'all';
   var showHelp = false;
@@ -22,6 +24,8 @@
   var growthOpen = false;
   var pendingRunConfig = G.normalizeRunConfig();
   var pendingSeed;
+  var loadouts = L.load();
+  var loadoutNames = [];
 
   var BP_NOTES = {
     greenhouse: '食物专精：单座供给 8，省 1 槽',
@@ -62,6 +66,32 @@
   }
   function loadBest() {
     try { return Number(localStorage.getItem(BEST_KEY) || 0) || 0; } catch (e) { return 0; }
+  }
+  function loadSavedLoadouts() {
+    try { loadouts = L.load(JSON.parse(localStorage.getItem(LOADOUT_KEY) || 'null')); }
+    catch (e) { loadouts = L.load(); }
+    loadoutNames = loadouts.slots.map(function (slot, index) { return slot ? slot.name : '方案 ' + (index + 1); });
+  }
+  function buffLabel(ids) {
+    return ids.map(function (id) { return G.BUFFS.filter(function (b) { return b.id === id; })[0].name; }).join('＋') || '无加成';
+  }
+  function saveLoadout(index) {
+    var g = currentGrowth(), check = G.runConfigStatus(pendingRunConfig, g.totalRep, g.legacyUnlockRep);
+    if (!check.ok) { toast(check.error); return; }
+    var updated = L.save(loadouts, index, loadoutNames[index], pendingRunConfig.buffIds);
+    try { localStorage.setItem(LOADOUT_KEY, JSON.stringify(updated)); }
+    catch (e) { toast('方案未能保存，请检查浏览器存储'); return; }
+    loadouts = updated;
+    loadoutNames[index] = updated.slots[index].name;
+    render();
+    toast('已保存「' + updated.slots[index].name + '」');
+  }
+  function applyLoadout(index) {
+    var g = currentGrowth();
+    try { pendingRunConfig = L.apply(loadouts.slots[index], pendingRunConfig.difficultyId, g.totalRep, g.legacyUnlockRep); }
+    catch (e) { toast(e.message); return; }
+    render();
+    toast('已载入「' + loadouts.slots[index].name + '」，难度保持不变');
   }
   function saveBest(rep) {
     try { localStorage.setItem(BEST_KEY, String(rep)); } catch (e) {}
@@ -183,7 +213,8 @@
   function render() {
     if (growthOpen || selectingScenario || configuringScenario) {
       var detailsOpen = !!$('modalCard').querySelector('.setup-details[open]');
-      $('modalCard').innerHTML = growthOpen ? growthHtml() : configuringScenario ? runSetupHtml(detailsOpen) : scenarioSelectionHtml();
+      var presetsOpen = !!$('modalCard').querySelector('.loadout-presets[open]');
+      $('modalCard').innerHTML = growthOpen ? growthHtml() : configuringScenario ? runSetupHtml(detailsOpen, presetsOpen) : scenarioSelectionHtml();
       $('modal').classList.remove('hidden');
       $('btnShowModal').classList.add('hidden');
       $('btnNext').disabled = true;
@@ -424,7 +455,34 @@
       }).join('') + '</div><div class="modal-actions"><button class="btn primary" data-close-growth="1" type="button">返回</button></div>';
   }
 
-  function runSetupHtml(detailsOpen) {
+  function loadoutAdviceHtml(g) {
+    var advice = L.recommendation(configuringScenario, pendingRunConfig.difficultyId, g.totalRep, g.legacyUnlockRep);
+    if (!advice) return '';
+    var selected = pendingRunConfig.buffIds.join('|') === advice.buffIds.join('|');
+    return '<section class="loadout-advice" aria-label="本关配装建议"><b>本关建设建议</b><p>' + esc(advice.focus) + '</p>' +
+      '<div><span>建议 BUFF：' + esc(buffLabel(advice.buffIds)) + ' · ' + advice.cost + ' / ' + g.capacity + ' 点</span>' +
+      '<button class="btn ghost" type="button" data-apply-advice="1"' + (selected ? ' disabled' : '') + '>' +
+      (selected ? '已采用此组合' : '采用建议 BUFF') + '</button></div>' +
+      '<small>按当前已解锁内容提供一种搭配，可自由调整；蓝图仍需抽取。' +
+      (pendingRunConfig.difficultyId === 'hard' ? '困难模式更依赖资源调度，建议先熟悉普通模式。' : '') + '</small></section>';
+  }
+  function loadoutPresetsHtml(g, open) {
+    return '<details class="loadout-presets"' + (open ? ' open' : '') + '><summary>我的 BUFF 方案 · 已保存 ' +
+      loadouts.slots.filter(function (s) { return !!s; }).length + ' / ' + L.SLOT_COUNT + '</summary>' +
+      '<p>保存到此浏览器，跨关卡使用。载入只替换 BUFF，保留当前难度；确认开始本局后生效。</p>' +
+      '<div class="loadout-grid">' + loadouts.slots.map(function (slot, index) {
+        var check = L.status(slot, pendingRunConfig.difficultyId, g.totalRep, g.legacyUnlockRep);
+        var reason = check.ok ? check.cost + ' / ' + check.capacity + ' 点' : check.error;
+        return '<div class="loadout-slot"><label for="loadout-name-' + index + '">方案 ' + (index + 1) + ' 名称</label>' +
+          '<input id="loadout-name-' + index + '" data-loadout-name="' + index + '" maxlength="' + L.NAME_LIMIT + '" value="' + esc(loadoutNames[index]) + '">' +
+          '<span>' + esc(slot ? buffLabel(slot.buffIds) : '保存当前选择，方便下次使用') + '</span><small>' + esc(reason) + '</small>' +
+          '<div class="loadout-actions"><button class="btn ghost" data-save-loadout="' + index + '" type="button">' +
+          (slot ? '覆盖为当前 BUFF' : '保存当前 BUFF') + '</button>' +
+          '<button class="btn ghost" data-apply-loadout="' + index + '" aria-label="载入方案 ' + (index + 1) + '" type="button"' +
+          (check.ok ? '' : ' disabled') + '>载入</button></div></div>';
+      }).join('') + '</div></details>';
+  }
+  function runSetupHtml(detailsOpen, presetsOpen) {
     var s = G.SCENARIOS.filter(function (x) { return x.id === configuringScenario; })[0];
     var m = G.runModifiers(pendingRunConfig);
     var g = currentGrowth(), status = G.runConfigStatus(pendingRunConfig, g.totalRep, g.legacyUnlockRep);
@@ -450,6 +508,7 @@
       (reward.firstCleared ? '（此难度已领取）' : '（此关此难度仅一次）') + '</span><small>通关才获得额外奖励；未通关仍累计本局声望。</small></div>' +
       '<fieldset class="setup-group"><legend>难度</legend><div class="setup-options difficulties">' +
       G.DIFFICULTIES.map(function (d) { return option(d, 'difficultyId'); }).join('') + '</div></fieldset>' +
+      loadoutAdviceHtml(g) + loadoutPresetsHtml(g, presetsOpen) +
       '<fieldset class="setup-group"><legend>开局 BUFF · 已用 ' + status.cost + ' / ' + g.capacity + ' 点</legend><div class="setup-options">' +
       G.BUFFS.map(function (b) { return option(b, 'buffIds'); }).join('') + '</div></fieldset>' +
       '<div class="setup-summary"><b>' + configLabel(pendingRunConfig) + '</b>' +
@@ -726,6 +785,7 @@
       '<h2>规则速览</h2>' +
       '<p><b>本局配置</b>：' + configLabel(G.getState().runConfig) + '。普通采用标准人口需求，困难为八项人口需求 ×1.15。BUFF 可多选，总消耗不超过额度；初始人口增加也会增加需求，蓝图筹备将开局改为 5 选 2。配置与成长在开局时固定，之后解锁不追补当前局。成绩按关卡、难度、BUFF 组合及有效成长功能分别记录。</p>' +
       '<p><b>局外成长</b>：完成 T30 后，本局声望 100% 计入累计，再加通关奖励和首通奖励；困难通关奖励为普通的 2 倍。未通关仍累计本局声望，中途重开不结算。首通按关卡和难度各领取一次，更换 BUFF 不重复领取。达到门槛自动解锁 BUFF、携带额度、新关卡、蓝图刷新和新蓝图，不扣除声望。累计 ' + chapterThresholds().join('／') + ' 各解锁三关；蓝图刷新按成长每局共 1／2 次，开局和升级抽取共用，不消耗建造行动；新蓝图先加入随机池，仍需抽取再建造。</p>' +
+      '<p><b>BUFF 方案</b>：开局配置中可命名并保存 3 套 BUFF，跨关卡载入，保留当前难度；只在本浏览器保存。超过额度或含未解锁 BUFF 的方案不可载入。关卡建议提供一种当前可用搭配，可自由调整；点击“开始本局”后才替换城市。</p>' +
       '<p><b>建设目标</b>：开局选择关卡，要求固定且全程可见。多项资源分别验收，富余资源不能抵消另一项的缺口。</p><ul>' +
       G.SCENARIOS.map(function (s, index) { return '<li><b>第 ' + (index + 1) + ' 关 · ' + s.name + '</b>：' +
         s.requirements.map(function (r) { return r.label + ' ≥' + r.target; }).join('、') + '。</li>'; }).join('') + '</ul>' +
@@ -1127,6 +1187,7 @@
   function init() {
     // Migrate historical clears before rendering can record this run's first victory.
     loadGrowth();
+    loadSavedLoadouts();
     $('btnGrowth').addEventListener('click', function () { growthOpen = true; render(); $('modalCard').scrollTop = 0; });
     $('btnNext').addEventListener('click', nextTurn);
     $('btnRestart').addEventListener('click', function () { restart(false); });
@@ -1163,7 +1224,20 @@
       }
       render();
     });
+    $('modalCard').addEventListener('input', function (e) {
+      var input = e.target.closest('[data-loadout-name]');
+      if (input) loadoutNames[Number(input.getAttribute('data-loadout-name'))] = input.value;
+    });
     $('modalCard').addEventListener('click', function (e) {
+      var savePreset = e.target.closest('[data-save-loadout]');
+      if (savePreset) { saveLoadout(Number(savePreset.getAttribute('data-save-loadout'))); return; }
+      var applyPreset = e.target.closest('[data-apply-loadout]');
+      if (applyPreset) { applyLoadout(Number(applyPreset.getAttribute('data-apply-loadout'))); return; }
+      if (e.target.closest('[data-apply-advice]')) {
+        var g = currentGrowth(), advice = L.recommendation(configuringScenario, pendingRunConfig.difficultyId, g.totalRep, g.legacyUnlockRep);
+        if (advice) pendingRunConfig = L.apply(advice, pendingRunConfig.difficultyId, g.totalRep, g.legacyUnlockRep);
+        render(); return;
+      }
       if (e.target.closest('[data-open-growth]')) { growthOpen = true; render(); $('modalCard').scrollTop = 0; return; }
       if (e.target.closest('[data-close-growth]')) { growthOpen = false; render(); $('modalCard').scrollTop = 0; return; }
       if (e.target.closest('[data-reroll-blueprints]')) {

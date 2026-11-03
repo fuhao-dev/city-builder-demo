@@ -136,6 +136,22 @@ body {
 .end-config { color: var(--muted); font-size: 11px; margin-top: 8px; }
 .setup-option small { display: block; color: var(--gold); margin-top: 8px; font-size: 10px; }
 .setup-option:disabled { cursor: not-allowed; opacity: .5; }
+.loadout-advice, .loadout-presets { padding: 14px; margin: 16px 0; border: 1px solid var(--line); border-radius: 10px; background: rgba(87,224,192,.04); }
+.loadout-advice > b, .loadout-presets summary { font-size: 12px; color: var(--gold); }
+.loadout-advice p, .loadout-presets p { font-size: 11px; line-height: 1.7; margin: 8px 0; }
+.loadout-advice > div { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 11px; }
+.loadout-advice small { display: block; color: var(--muted); font-size: 10px; line-height: 1.7; margin-top: 8px; }
+.loadout-advice .btn { flex-shrink: 0; }
+.loadout-presets summary { cursor: pointer; }
+.loadout-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
+.loadout-slot { display: flex; min-width: 0; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); }
+.loadout-slot label { font-size: 10px; color: var(--muted); }
+.loadout-slot input { box-sizing: border-box; min-width: 0; width: 100%; font: inherit; font-size: 12px; padding: 8px; border: 1px solid var(--line); border-radius: 6px; color: var(--ink); background: rgba(0,0,0,.16); }
+.loadout-slot input:focus-visible { outline: 2px solid var(--teal); }
+.loadout-slot > span, .loadout-slot > small { overflow-wrap: anywhere; font-size: 10px; line-height: 1.7; }
+.loadout-slot > small { color: var(--muted); margin-top: auto; }
+.loadout-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.loadout-actions .btn { padding: 7px 9px; font-size: 10px; }
 .growth-summary { display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 14px; margin: 14px 0; border: 1px solid var(--line); border-radius: 10px; background: rgba(87,224,192,.04); }
 .growth-summary b, .growth-summary span, .growth-summary small { display: block; line-height: 1.7; }
 .growth-summary b { color: var(--teal); font-size: 13px; }
@@ -504,6 +520,8 @@ body {
   .build-list { max-height: 420px; }
 }
 @media (max-width: 900px) {
+  .loadout-grid { grid-template-columns: 1fr; }
+  .loadout-advice > div { align-items: flex-start; flex-direction: column; }
   .growth-item { flex-direction: column; gap: 6px; }
   .growth-item small { text-align: left; }
   .setup-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
