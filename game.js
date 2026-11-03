@@ -36,24 +36,24 @@
     { id: 'preparation', name: '建设筹备', description: '初始金钱 +60。', cost: 1, unlockRep: 0, effects: { startingMoney: 60 } },
     { id: 'food_aid', name: '粮食援助', description: '基础食物供给 +2／回合。', cost: 2, unlockRep: 0, effects: { baseSupply: { food: 2 } } },
     { id: 'water_saving', name: '节水设施', description: '人口用水需求 ×0.9。', cost: 1, unlockRep: 0, effects: { populationDemandMultiplier: { water: 0.9 } } },
-    { id: 'settlers', name: '先遣居民', description: '初始人口 +1，同时增加需求；城镇仍需手动升级。', cost: 2, unlockRep: 80, effects: { startingPop: 1 } },
-    { id: 'blueprint_pack', name: '蓝图筹备', description: '开局蓝图改为 5 选 2。', cost: 3, unlockRep: 400, effects: { openingBlueprints: 1 } },
-    { id: 'material_aid', name: '建材援助', description: '基础原料供给 +2／回合。', cost: 2, unlockRep: 700, newIn314: true, effects: { baseSupply: { material: 2 } } },
-    { id: 'power_aid', name: '电力援助', description: '基础电力供给 +2／回合。', cost: 2, unlockRep: 1100, newIn314: true, effects: { baseSupply: { power: 2 } } },
-    { id: 'civic_support', name: '民生配套', description: '衣服、家具、药品、教育的人口需求 ×0.9。', cost: 3, unlockRep: 2000, newIn314: true,
+    { id: 'settlers', name: '先遣居民', description: '初始人口 +1，同时增加需求；城镇仍需手动升级。', cost: 2, unlockRep: 150, effects: { startingPop: 1 } },
+    { id: 'blueprint_pack', name: '蓝图筹备', description: '开局蓝图改为 5 选 2。', cost: 3, unlockRep: 1000, effects: { openingBlueprints: 1 } },
+    { id: 'material_aid', name: '建材援助', description: '基础原料供给 +2／回合。', cost: 2, unlockRep: 1800, newIn314: true, effects: { baseSupply: { material: 2 } } },
+    { id: 'power_aid', name: '电力援助', description: '基础电力供给 +2／回合。', cost: 2, unlockRep: 3000, newIn314: true, effects: { baseSupply: { power: 2 } } },
+    { id: 'civic_support', name: '民生配套', description: '衣服、家具、药品、教育的人口需求 ×0.9。', cost: 3, unlockRep: 5000, newIn314: true,
       effects: { populationDemandMultiplier: { clothes: 0.9, furniture: 0.9, medicine: 0.9, education: 0.9 } } }
   ];
-  var CAPACITY_LEVELS = [{ rep: 0, capacity: 2 }, { rep: 100, capacity: 3 },
-    { rep: 600, capacity: 4 }, { rep: 1000, capacity: 5 }, { rep: 1800, capacity: 6 }, { rep: 2800, capacity: 7 }];
-  var REROLL_UNLOCK_REP = 120;
-  var SECOND_REROLL_REP = 2200;
+  var CAPACITY_LEVELS = [{ rep: 0, capacity: 2 }, { rep: 250, capacity: 3 },
+    { rep: 1500, capacity: 4 }, { rep: 2500, capacity: 5 }, { rep: 4500, capacity: 6 }, { rep: 7500, capacity: 7 }];
+  var REROLL_UNLOCK_REP = 300;
+  var SECOND_REROLL_REP = 5500;
   var REWARD_VERSION = 1;
   function legacyGrowthRep(rep) {
     if (rep === undefined) rep = 0;
     if (!Number.isSafeInteger(rep) || rep < 0) throw new Error('累计声望无效');
     var floor = rep;
     // The old and new milestones have the same order, so one permission floor preserves every old unlock.
-    [[180,400],[200,450],[300,600],[400,900],[600,1000],[650,1400],[1000,1800]].forEach(function (pair) {
+    [[80,150],[100,250],[120,300],[180,1000],[200,1200],[300,1500],[400,2000],[600,2500],[650,3500],[1000,4500]].forEach(function (pair) {
       if (rep >= pair[0]) floor = Math.max(floor, pair[1]);
     });
     return floor;
@@ -184,29 +184,29 @@
       ] }
   ];
   SCENARIOS = SCENARIOS.concat([
-    { id: 'logistics', name: '物流枢纽', icon: '🚚', tag: '双资源调度', unlockRep: 900,
+    { id: 'logistics', name: '物流枢纽', icon: '🚚', tag: '双资源调度', unlockRep: 2000,
       description: '同时储备食物与原料，支撑物流城市持续扩张。', requirements: [
         { key: 'pop', label: '人口', target: 15 }, { key: 'balance', resource: 'food', label: '食物净余量', target: 10 },
         { key: 'balance', resource: 'material', label: '原料净余量', target: 10 }, { key: 'sat', label: '满意度', target: 50 }] },
-    { id: 'manufacturing', name: '轻工之城', icon: '🧵', tag: '双产业专精', unlockRep: 900,
+    { id: 'manufacturing', name: '轻工之城', icon: '🧵', tag: '双产业专精', unlockRep: 2000,
       description: '发展服装与家具双产业，为制造业配足基础投入。', requirements: [
         { key: 'pop', label: '人口', target: 15 }, { key: 'balance', resource: 'clothes', label: '衣服净余量', target: 8 },
         { key: 'balance', resource: 'furniture', label: '家具净余量', target: 8 }, { key: 'sat', label: '满意度', target: 55 }] },
-    { id: 'research', name: '科研新城', icon: '🔬', tag: '教育与能源', unlockRep: 900,
+    { id: 'research', name: '科研新城', icon: '🔬', tag: '教育与能源', unlockRep: 2000,
       description: '建设教育高地，同时保障科研所需的电力储备。', requirements: [
         { key: 'pop', label: '人口', target: 15 }, { key: 'balance', resource: 'education', label: '教育净余量', target: 10 },
         { key: 'balance', resource: 'power', label: '电力净余量', target: 8 }, { key: 'sat', label: '满意度', target: 60 }] },
-    { id: 'resilience', name: '韧性之城', icon: '🛡', tag: '全资源平衡', unlockRep: 1800,
+    { id: 'resilience', name: '韧性之城', icon: '🛡', tag: '全资源平衡', unlockRep: 4500,
       description: '让八项资源同时收支平衡，形成完整城市供给体系。', requirements: [
         { key: 'pop', label: '人口', target: 18 }, { key: 'sat', label: '满意度', target: 70 }].concat(RES.map(function (r) {
           return { key: 'balance', resource: r.key, label: r.name + '净余量', target: 0 };
         })) },
-    { id: 'care', name: '宜居都会', icon: '🌳', tag: '四项民生储备', unlockRep: 1800,
+    { id: 'care', name: '宜居都会', icon: '🌳', tag: '四项民生储备', unlockRep: 4500,
       description: '接纳更多居民，并让四项高级民生资源都有额外储备。', requirements: [
         { key: 'pop', label: '人口', target: 20 }, { key: 'sat', label: '满意度', target: 75 }].concat(['clothes','furniture','medicine','education'].map(function (key) {
           return { key: 'balance', resource: key, label: RES.filter(function (r) { return r.key === key; })[0].name + '净余量', target: 2 };
         })) },
-    { id: 'capital', name: '综合首府', icon: '🏛', tag: '终章综合建设', unlockRep: 1800,
+    { id: 'capital', name: '综合首府', icon: '🏛', tag: '终章综合建设', unlockRep: 4500,
       description: '建设高人口、高品质城市，兼顾基础储备与医教产出。', requirements: [
         { key: 'pop', label: '人口', target: 22 }, { key: 'sat', label: '满意度', target: 70 }].concat(['food','material','power','water','medicine','education'].map(function (key) {
           return { key: 'balance', resource: key, label: RES.filter(function (r) { return r.key === key; })[0].name + '净余量', target: key === 'medicine' || key === 'education' ? 2 : 4 };
@@ -246,9 +246,9 @@
     { id: 'medschool',  name: '医教中心', icon: '🏥', cost: 190, labor: 1, max: 1, out: { medicine: 9, education: 9 }, extra: { water: 4, power: 4, material: 2 } },
     { id: 'market',     name: '市场',     icon: '🏪', cost: 90,  labor: 0, max: 1, out: {}, bonus: { sat: 5 } },
     { id: 'warehouse',  name: '仓库',     icon: '📦', cost: 80,  labor: 0, max: 1, out: {}, bonus: { occDiscount: 0.2 } },
-    { id: 'supplycamp', name: '补给营地', icon: '⛺', cost: 130, labor: 1, max: 1, out: { food: 4, material: 4 }, unlockRep: 450 },
-    { id: 'purifier', name: '净水站', icon: '🚰', cost: 140, labor: 1, max: 1, out: { water: 10 }, extra: { power: 2 }, unlockRep: 900 },
-    { id: 'library', name: '公共图书馆', icon: '📖', cost: 160, labor: 1, max: 1, out: { education: 10 }, extra: { material: 1, power: 1 }, unlockRep: 1400 }
+    { id: 'supplycamp', name: '补给营地', icon: '⛺', cost: 130, labor: 1, max: 1, out: { food: 4, material: 4 }, unlockRep: 1200 },
+    { id: 'purifier', name: '净水站', icon: '🚰', cost: 140, labor: 1, max: 1, out: { water: 10 }, extra: { power: 2 }, unlockRep: 2000 },
+    { id: 'library', name: '公共图书馆', icon: '📖', cost: 160, labor: 1, max: 1, out: { education: 10 }, extra: { material: 1, power: 1 }, unlockRep: 3500 }
   ];
 
   var ALL_BUILDINGS = BASE_BUILDINGS.concat(BLUEPRINTS);
@@ -762,7 +762,7 @@
   function blueprintRerollStatus() {
     if (!state || state.over || !state.pendingDraw) return { ok: false, reason: '当前没有待选蓝图', remaining: 0 };
     var remaining = state.rerollsRemaining || 0;
-    if (!remaining) return { ok: false, reason: growthStatus(state.growthRep || 0, state.legacyUnlockRep).rerolls ? '本局刷新次数已用完' : '累计声望 120 解锁蓝图刷新', remaining: 0 };
+    if (!remaining) return { ok: false, reason: growthStatus(state.growthRep || 0, state.legacyUnlockRep).rerolls ? '本局刷新次数已用完' : '累计声望 ' + REROLL_UNLOCK_REP + ' 解锁蓝图刷新', remaining: 0 };
     var fresh = growthStatus(state.growthRep || 0, state.legacyUnlockRep).blueprintIds.filter(function (id) {
       return state.unlocked.indexOf(id) < 0 && state.pendingDraw.options.indexOf(id) < 0;
     });
@@ -1295,7 +1295,8 @@
       if (s.scenarioId && growth.scenarioIds.indexOf(s.scenarioId) < 0) return { ok: false, error: '存档关卡尚未解锁' };
       var configStatus = runConfigStatus(runConfig, growth.totalRep, growth.legacyUnlockRep);
       if (!configStatus.ok) return { ok: false, error: configStatus.error };
-      var granted = s.rerollsGranted === undefined ? (s.rewardVersion === undefined ? (growth.totalRep >= REROLL_UNLOCK_REP ? 1 : 0) : growth.rerolls) : s.rerollsGranted;
+      // Saves without rewardVersion used the published v3.13 refresh threshold of 120.
+      var granted = s.rerollsGranted === undefined ? (s.rewardVersion === undefined ? (growth.totalRep >= 120 ? 1 : 0) : growth.rerolls) : s.rerollsGranted;
       if (!Number.isInteger(granted) || granted < 0 || granted > growth.rerolls) return { ok: false, error: '本局刷新权限无效' };
       if (s.rerollsRemaining !== undefined && (!Number.isInteger(s.rerollsRemaining) || s.rerollsRemaining < 0 || s.rerollsRemaining > granted)) {
         return { ok: false, error: '蓝图刷新次数无效' };

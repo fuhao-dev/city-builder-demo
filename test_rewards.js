@@ -12,11 +12,11 @@ function finish(id='town',difficultyId='normal',buffIds=[],rep=60,win=true,growt
   ok(G.endTurn().ok,'genuine engine finalization');eq(s.final.cleared,win,'fixture meets independent win/loss intent');
   return G.exportState();
 }
-const expected=[['town',10,20],['agriculture',15,30],['education',20,40],['industry',25,50],['health',30,60],['metropolis',40,80],
-  ['logistics',40,80],['manufacturing',45,90],['research',50,100],['resilience',55,110],['care',60,120],['capital',70,140]];
+const expected=[['town',50,100],['agriculture',75,150],['education',100,200],['industry',125,250],['health',150,300],['metropolis',200,400],
+  ['logistics',200,400],['manufacturing',225,450],['research',250,500],['resilience',275,550],['care',300,600],['capital',350,700]];
 for(const [id,clear,first] of expected)for(const difficulty of ['normal','hard']){
   const f=finish(id,difficulty),raw=JSON.stringify(f),ledger=P.creditGrowth({},f),r=ledger.settled[f.runId];
-  eq(r.baseRep,60,'base score unchanged');eq(r.clearBonus,difficulty==='hard'?Math.ceil(clear*1.5):clear,'difficulty scales clear bonus only');
+  eq(r.baseRep,60,'base score unchanged');eq(r.clearBonus,difficulty==='hard'?clear*2:clear,'difficulty scales clear bonus only');
   eq(r.firstClearBonus,first,'first reward is fixed per scenario');eq(r.total,60+r.clearBonus+first,'receipt sums correctly');
   eq(P.totalRep(ledger),r.total,'total derived from receipts');eq(r.beforeRep,0,'starts from no reputation');eq(r.afterRep,r.total,'after total captured');
   eq(P.creditGrowth(ledger,f),ledger,'repeated credit is idempotent');eq(JSON.stringify(f),raw,'settlement never mutates engine snapshot');
@@ -27,15 +27,15 @@ for(const [id,clear,first] of expected)for(const difficulty of ['normal','hard']
 let ledger=P.loadGrowth();
 const first=finish();const firstR=P.growthReward(ledger,first);
 eq(P.totalRep(ledger),0,'reward preview does not credit');eq(P.growthReward(ledger,first),firstR,'preview stable without mutation');
-ledger=P.creditGrowth(ledger,first);eq(P.totalRep(ledger),90,'first town earns 60 + 10 + 20');
-const repeat=finish('town','normal',['preparation','water_saving'],60,true,90);
+ledger=P.creditGrowth(ledger,first);eq(P.totalRep(ledger),210,'first town earns 60 + 50 + 100');
+const repeat=finish('town','normal',['preparation','water_saving'],60,true,210);
 const repeatR=P.growthReward(ledger,repeat);eq(repeatR.firstClearBonus,0,'different combo shares first-clear claim');
-eq(repeatR.clearBonus,10,'repeat wins still get clear reward');ledger=P.creditGrowth(ledger,repeat);eq(P.totalRep(ledger),160,'repeat reward added once');
-const fail=finish('town','hard',[],20,false,160),failed=P.creditGrowth(ledger,fail);
-eq(failed.settled[fail.runId].total,20,'failure receives base only');eq(P.rewardPreview(failed,'town',{difficultyId:'hard'}).firstClearBonus,20,'failure does not consume first');
-const hard=finish('town','hard',[],40,true,180);ledger=P.creditGrowth(failed,hard);
-eq(ledger.settled[hard.runId].firstClearBonus,20,'hard first can be claimed after failure');
-eq(ledger.settled[hard.runId].clearBonus,15,'hard adds 50% to clear reward');
+eq(repeatR.clearBonus,50,'repeat wins still get clear reward');ledger=P.creditGrowth(ledger,repeat);eq(P.totalRep(ledger),320,'repeat reward added once');
+const fail=finish('town','hard',[],20,false,320),failed=P.creditGrowth(ledger,fail);
+eq(failed.settled[fail.runId].total,20,'failure receives base only');eq(P.rewardPreview(failed,'town',{difficultyId:'hard'}).firstClearBonus,100,'failure does not consume first');
+const hard=finish('town','hard',[],40,true,340);ledger=P.creditGrowth(failed,hard);
+eq(ledger.settled[hard.runId].firstClearBonus,100,'hard first can be claimed after failure');
+eq(ledger.settled[hard.runId].clearBonus,100,'hard doubles clear reward');
 eq(P.growthReward(ledger,first),firstR,'saved receipt stays identical after later games');
 eq(P.loadGrowth(ledger,{'metropolis|hard|none':{cleared:true,bestRep:100}}),ledger,'v2 reload never imports newly written scores as historical');
 
@@ -46,31 +46,43 @@ const migrated=P.loadGrowth(oldData,scores);
 eq(migrated.version,2,'ledger upgraded');eq(P.totalRep(migrated),240,'old amount preserved');
 eq(migrated.settled[oldId].total,240,'legacy receipt retains amount');eq(migrated.settled[oldId].clearBonus,0,'no invented historical bonus');
 eq(P.rewardPreview(migrated,'town',{}).firstClearBonus,0,'old cleared scenario is already claimed');
-eq(P.rewardPreview(migrated,'town',{difficultyId:'hard'}).firstClearBonus,20,'old normal clear cannot consume hard first');
+eq(P.rewardPreview(migrated,'town',{difficultyId:'hard'}).firstClearBonus,100,'old normal clear cannot consume hard first');
 eq(P.rewardPreview(migrated,'education',{difficultyId:'hard',buffIds:['water_saving']}).firstClearBonus,0,'legacy claim ignores buff');
 eq(P.loadGrowth(JSON.parse(JSON.stringify(migrated))),migrated,'migration is idempotent');eq(oldData.version,1,'migration does not mutate old data');
-eq(P.permissionRep(migrated),450,'old blueprint and capacity permissions retained independently of amount');
-for(const [oldRep,permissionRep,capacity,pool] of [[179,179,3,16],[180,400,3,16],[200,450,3,17],[300,600,4,17],[400,900,4,18],[600,1000,5,18],[650,1400,5,19],[1000,1800,6,19]]){
+eq(P.permissionRep(migrated),1200,'old blueprint and capacity permissions retained independently of amount');
+for(const [oldRep,permissionRep,capacity,pool] of [[79,79,2,16],[80,150,2,16],[99,150,2,16],[100,250,3,16],[119,250,3,16],[120,300,3,16],[179,300,3,16],[180,1000,3,16],[200,1200,3,17],[300,1500,4,17],[400,2000,4,18],[600,2500,5,18],[650,3500,5,19],[1000,4500,6,19]]){
   const oldLedger=P.loadGrowth({version:1,settled:{[oldId]:oldRep}}),g=G.growthStatus(P.totalRep(oldLedger),oldLedger.legacyUnlockRep);
   eq(P.totalRep(oldLedger),oldRep,'migration never invents cumulative points');eq(P.permissionRep(oldLedger),permissionRep,'old permissions mapped at boundary');
   eq(g.capacity,capacity,'old capacity retained');eq(g.blueprintIds.length,pool,'old pool retained without granting next feature');
 }
-const oldCity=G.newGame(1,'town',{buffIds:['blueprint_pack']},1400);
+const oldCity=G.newGame(1,'town',{buffIds:['blueprint_pack']},3500);
 const oldCitySave=G.exportState();delete oldCitySave.rewardVersion;oldCitySave.growthRep=650;
 const oldCityRng=oldCity.rngState;ok(G.importState(oldCitySave).ok,'old expanded-pool city imports');
-eq(G.getState().growthRep,650,'active city keeps actual growth snapshot');eq(G.getState().legacyUnlockRep,1400,'active city preserves old library permission');eq(G.getState().rngState,oldCityRng,'permission migration never changes RNG');
+eq(G.getState().growthRep,650,'active city keeps actual growth snapshot');eq(G.getState().legacyUnlockRep,3500,'active city preserves old library permission');eq(G.getState().rngState,oldCityRng,'permission migration never changes RNG');
 eq(G.getState().pendingDraw,oldCitySave.pendingDraw,'pending blueprint candidates preserved');
 const preserved=G.growthStatus(400,G.legacyGrowthRep(400));
 eq(preserved.buffIds.includes('material_aid'),false,'legacy floor cannot unlock brand-new buffs early');
 eq(preserved.scenarioIds.length,6,'legacy floor cannot unlock brand-new chapters early');
-eq(G.growthStatus(2199,10000).rerolls,1,'legacy floor cannot grant a second refresh');
-eq(G.growthStatus(2799,10000).capacity,6,'legacy floor cannot grant new seventh capacity');
-const veryOld=G.newGame(21,'town',{},3000),oldHigh=G.exportState();
+eq(G.growthStatus(5499,10000).rerolls,1,'legacy floor cannot grant a second refresh');
+eq(G.growthStatus(7499,10000).capacity,6,'legacy floor cannot grant new seventh capacity');
+const veryOld=G.newGame(21,'town',{},6000),oldHigh=G.exportState();
 delete oldHigh.rewardVersion;delete oldHigh.rerollsGranted;delete oldHigh.legacyUnlockRep;
 oldHigh.rerollsRemaining=0;
 ok(G.importState(oldHigh).ok,'high-reputation legacy run migrates');eq(G.getState().rerollsGranted,1,'legacy run retains original one-refresh group');
 eq(G.getState().rerollsRemaining,0,'legacy spent refresh not regranted');
-eq(P.key('town',{},3000,G.getState().legacyUnlockRep,G.getState().rerollsGranted),P.key('town',{},1400),'legacy high-reputation score stays in one-refresh profile');
+eq(P.key('town',{},6000,G.getState().legacyUnlockRep,G.getState().rerollsGranted),P.key('town',{},3500),'legacy high-reputation score stays in one-refresh profile');
+for(const oldRep of [119,120,299]){
+  const city=G.newGame(24,'town',{},300),save=G.exportState();
+  delete save.rewardVersion;delete save.rerollsGranted;delete save.legacyUnlockRep;
+  save.growthRep=oldRep;save.rerollsRemaining=oldRep>=120?1:0;
+  const rng=city.rngState;
+  ok(G.importState(save).ok,'published save below new refresh threshold imports');
+  eq(G.getState().growthRep,oldRep,'old refresh permission never inflates actual reputation');
+  eq(G.getState().rerollsGranted,oldRep>=120?1:0,'original 120-point refresh threshold retained');
+  eq(G.getState().rerollsRemaining,save.rerollsRemaining,'unspent old refresh retained');
+  eq(G.getState().rngState,rng,'refresh migration preserves RNG');
+  if(oldRep>=120){ok(G.rerollBlueprints().ok,'retained refresh works below new threshold');eq(G.getState().rerollsRemaining,0,'retained refresh spends exactly once');}
+}
 
 // Active pre-reward saves can earn new bonuses; finished saves cannot backfill them.
 const active=G.newGame(10,'town');G.chooseBlueprints(active.pendingDraw.options.slice(0,1));

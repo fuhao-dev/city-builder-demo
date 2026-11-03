@@ -22,7 +22,7 @@ function journey(start,gameCount=12,policy='tour',loadout='construction'){
     assert(G.runConfigStatus(runConfig,before).ok,'only unlocked affordable buffs are selected');
     const row=S.play(start+index,id,policy==='basic',undefined,runConfig,before),save=G.exportState();
     const score=save.rep,claim=id+'|'+difficultyId,definition=P.REWARDS[id];
-    const clear=row.cleared?Math.ceil(definition.clear*(difficultyId==='hard'?1.5:1)):0;
+    const clear=row.cleared?definition.clear*(difficultyId==='hard'?2:1):0;
     const first=row.cleared&&!claims.has(claim)?definition.first:0;
     const preview=P.growthReward(ledger,save);
     assert.equal(P.totalRep(ledger),before,'preview never credits');
@@ -37,7 +37,11 @@ function journey(start,gameCount=12,policy='tour',loadout='construction'){
     ledger=P.loadGrowth(JSON.parse(JSON.stringify(ledger)));
     assert.equal(P.totalRep(ledger),after,'account survives JSON persistence');
     if(row.cleared)claims.add(claim);
-    const thresholds={firstBuff:80,reroll:120,openingBuff:400,firstBatch:900,allBlueprints:1400,maxCapacity:1800,secondBatch:1800,secondReroll:2200,finalCapacity:2800};
+    const thresholds={firstBuff:G.BUFFS.find(b=>b.id==='settlers').unlockRep,reroll:G.REROLL_UNLOCK_REP,
+      openingBuff:G.BUFFS.find(b=>b.id==='blueprint_pack').unlockRep,firstBatch:G.SCENARIOS.find(s=>s.id==='logistics').unlockRep,
+      allBlueprints:Math.max(...G.BLUEPRINTS.map(b=>b.unlockRep||0)),maxCapacity:G.CAPACITY_LEVELS.find(l=>l.capacity===6).rep,
+      secondBatch:G.SCENARIOS.find(s=>s.id==='capital').unlockRep,secondReroll:G.SECOND_REROLL_REP,
+      finalCapacity:G.CAPACITY_LEVELS.find(l=>l.capacity===7).rep};
     for(const [key,rep] of Object.entries(thresholds))if(milestones[key]===null&&after>=rep)milestones[key]=index+1;
     rows.push({game:index+1,seed:row.seed,id,difficultyId,runConfig,growthBefore:before,cleared:row.cleared,
       baseRep:score,clearBonus:clear,firstClearBonus:first,income:receipt.total,growthAfter:after,

@@ -5,11 +5,11 @@
 })(typeof self !== 'undefined' ? self : this, function (G) {
   'use strict';
   var REWARDS = {
-    town: { clear: 10, first: 20 }, agriculture: { clear: 15, first: 30 },
-    education: { clear: 20, first: 40 }, industry: { clear: 25, first: 50 },
-    health: { clear: 30, first: 60 }, metropolis: { clear: 40, first: 80 },
-    logistics: { clear: 40, first: 80 }, manufacturing: { clear: 45, first: 90 }, research: { clear: 50, first: 100 },
-    resilience: { clear: 55, first: 110 }, care: { clear: 60, first: 120 }, capital: { clear: 70, first: 140 }
+    town: { clear: 50, first: 100 }, agriculture: { clear: 75, first: 150 },
+    education: { clear: 100, first: 200 }, industry: { clear: 125, first: 250 },
+    health: { clear: 150, first: 300 }, metropolis: { clear: 200, first: 400 },
+    logistics: { clear: 200, first: 400 }, manufacturing: { clear: 225, first: 450 }, research: { clear: 250, first: 500 },
+    resilience: { clear: 275, first: 550 }, care: { clear: 300, first: 600 }, capital: { clear: 350, first: 700 }
   };
   function firstClearKey(scenarioId, difficultyId) {
     if (!Object.prototype.hasOwnProperty.call(REWARDS, scenarioId) || !G.DIFFICULTIES.some(function (d) { return d.id === difficultyId; })) throw new Error('未知奖励关卡或难度');
@@ -123,7 +123,7 @@
   }
   function rewardPreview(data, scenarioId, config) {
     var c = G.normalizeRunConfig(config), claimed = firstCleared(data, scenarioId, c.difficultyId);
-    return { clearBonus: Math.ceil(REWARDS[scenarioId].clear * (c.difficultyId === 'hard' ? 1.5 : 1)),
+    return { clearBonus: REWARDS[scenarioId].clear * (c.difficultyId === 'hard' ? 2 : 1),
       firstClearBonus: claimed ? 0 : REWARDS[scenarioId].first, firstCleared: claimed };
   }
   function growthReward(data, state) {

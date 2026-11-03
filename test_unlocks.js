@@ -2,13 +2,13 @@ const assert=require('node:assert/strict'),G=require('./game.js'),P=require('./p
 let passed=0;
 const eq=(a,b,m)=>{assert.deepEqual(a,b,m);passed++;};
 const ok=(a,m)=>{assert(a,m);passed++;};
-for(const [rep,count] of [[0,6],[899,6],[900,9],[1799,9],[1800,12]])eq(G.growthStatus(rep).scenarioIds.length,count,'chapter unlock boundary '+rep);
-for(const [id,rep] of [['material_aid',700],['power_aid',1100],['civic_support',2000]]){
+for(const [rep,count] of [[0,6],[1999,6],[2000,9],[4499,9],[4500,12]])eq(G.growthStatus(rep).scenarioIds.length,count,'chapter unlock boundary '+rep);
+for(const [id,rep] of [['material_aid',1800],['power_aid',3000],['civic_support',5000]]){
   eq(G.growthStatus(rep-1).buffIds.includes(id),false,'new buff locked below '+rep);
   eq(G.growthStatus(rep).buffIds.includes(id),true,'new buff unlocked at '+rep);
 }
-eq(G.growthStatus(2199).rerolls,1,'second refresh locked');eq(G.growthStatus(2200).rerolls,2,'second refresh unlocked');
-eq(G.growthStatus(2799).capacity,6,'seventh point locked');eq(G.growthStatus(2800).capacity,7,'seventh point unlocked');
+eq(G.growthStatus(5499).rerolls,1,'second refresh locked');eq(G.growthStatus(5500).rerolls,2,'second refresh unlocked');
+eq(G.growthStatus(7499).capacity,6,'seventh point locked');eq(G.growthStatus(7500).capacity,7,'seventh point unlocked');
 G.newGame(1);
 for(const id of G.SCENARIOS.filter(s=>s.unlockRep).map(s=>s.id)){
   const def=G.SCENARIOS.find(s=>s.id===id),before=G.exportState();
@@ -33,11 +33,11 @@ for(const d of G.SCENARIOS){
   }
 }
 let combinations=0;
-const ids=G.growthStatus(2800).buffIds,sets=ids.reduce((sets,id)=>sets.concat(sets.map(s=>s.concat(id))),[[]]);
+const ids=G.growthStatus(7500).buffIds,sets=ids.reduce((sets,id)=>sets.concat(sets.map(s=>s.concat(id))),[[]]);
 for(const difficultyId of ['normal','hard'])for(const buffIds of sets){
-  if(!G.runConfigStatus({difficultyId,buffIds},2800).ok)continue;
+  if(!G.runConfigStatus({difficultyId,buffIds},7500).ok)continue;
   combinations++;
-  const s=G.newGame(18,'capital',{difficultyId,buffIds},2800);
+  const s=G.newGame(18,'capital',{difficultyId,buffIds},7500);
   G.chooseBlueprints(s.pendingDraw.options.slice(0,s.pendingDraw.count));
   const c=G.compute();
   eq(c.supply.material,buffIds.includes('material_aid')?3:1,'material support applied once');
@@ -49,11 +49,11 @@ for(const difficultyId of ['normal','hard'])for(const buffIds of sets){
   const before=G.exportState(),forecast=G.forecast();eq(G.exportState(),before,'forecast does not settle growth');
   ok(G.endTurn().ok,'late combination advances');eq(G.getState().last,forecast.last,'late forecast agrees with actual');
 }
-const refresh=G.newGame(9,'town',{},2200);
+const refresh=G.newGame(9,'town',{},5500);
 ok(G.rerollBlueprints().ok,'first of two refreshes');eq(refresh.rerollsRemaining,1,'one left');
 ok(G.rerollBlueprints().ok,'second refresh allowed');eq(refresh.rerollsRemaining,0,'both spent');
 const spent=G.exportState();eq(G.rerollBlueprints().ok,false,'third rejected');eq(G.exportState(),spent,'rejection preserves RNG');
 ok(G.importState(spent).ok,'two-spent state restores');eq(G.getState().rerollsRemaining,0,'no refill on reload');
-ok(P.key('town',{},1400)!==P.key('town',{},2200),'two-refresh scores have a separate group');
-const records={[P.key('town',{},2200)]:{cleared:true,bestRep:100}};eq(P.load(records),records,'late growth group survives loading');
+ok(P.key('town',{},3500)!==P.key('town',{},5500),'two-refresh scores have a separate group');
+const records={[P.key('town',{},5500)]:{cleared:true,bestRep:100}};eq(P.load(records),records,'late growth group survives loading');
 console.log('PASS '+passed+' unlock assertions ('+combinations+' late loadouts)');

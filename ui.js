@@ -343,7 +343,7 @@
   function scenarioSelectionHtml() {
     var records = loadCampaign(), g = currentGrowth();
     return '<div class="modal-head"><h2>选择建设关卡</h2>' +
-      '<p>每关 30 回合，达成全部建设目标才算通关。共 ' + G.SCENARIOS.length + ' 关，现已开放 ' + g.scenarioIds.length + ' 关；累计声望 900 / 1800 各解锁一批新关卡。</p></div>' +
+      '<p>每关 30 回合，达成全部建设目标才算通关。共 ' + G.SCENARIOS.length + ' 关，现已开放 ' + g.scenarioIds.length + ' 关；累计声望 ' + chapterThresholds().join(' / ') + ' 各解锁一批新关卡。</p></div>' +
       growthSummaryHtml() +
       '<div class="scenario-grid">' + G.SCENARIOS.map(function (s, index) {
         var locked = g.scenarioIds.indexOf(s.id) < 0;
@@ -360,6 +360,9 @@
       (G.getState() ? '<div class="modal-actions"><button class="btn ghost" data-cancel-scenario="1" type="button">返回当前城市</button></div>' : '');
   }
 
+  function chapterThresholds() {
+    return G.SCENARIOS.map(function (s) { return s.unlockRep || 0; }).filter(function (rep, i, all) { return rep > 0 && all.indexOf(rep) === i; }).sort(function (a,b) { return a-b; });
+  }
   function growthMilestones() {
     var rows = G.BUFFS.filter(function (b) { return b.unlockRep > 0; }).map(function (b) {
       return { rep: b.unlockRep, name: 'BUFF · ' + b.name, description: b.description + ' 消耗 ' + b.cost + ' 点额度。', legacy: !b.newIn314 };
@@ -370,9 +373,9 @@
     G.BLUEPRINTS.filter(function (b) { return b.unlockRep > 0; }).forEach(function (b) {
       rows.push({ rep: b.unlockRep, name: '新蓝图 · ' + b.name, description: outText(b) + (extraText(b) ? '；耗 ' + extraText(b) : '') + '。解锁后加入随机池，仍需抽取和花钱建造。', legacy: true });
     });
-    [900,1800].forEach(function (rep) {
+    chapterThresholds().forEach(function (rep, index) {
       var stages = G.SCENARIOS.filter(function (s) { return s.unlockRep === rep; });
-      rows.push({ rep: rep, name: (rep === 900 ? '拓展关卡' : '高阶关卡') + ' · 新增 ' + stages.length + ' 关', description: stages.map(function (s) { return s.name; }).join('、') + '，解锁后可自由挑战。', legacy: false });
+      rows.push({ rep: rep, name: (index === 0 ? '拓展关卡' : '高阶关卡') + ' · 新增 ' + stages.length + ' 关', description: stages.map(function (s) { return s.name; }).join('、') + '，解锁后可自由挑战。', legacy: false });
     });
     return rows.sort(function (a, b) { return a.rep - b.rep; });
   }
@@ -413,7 +416,7 @@
     var g = currentGrowth();
     return '<div class="modal-head"><h2>局外成长</h2><p>完成 30 回合后，本局声望计入累计；通关额外获得关卡奖励和未领取的首通奖励。首通按关卡 × 难度领取，换 BUFF 不重复发放。累计达标自动解锁，不扣除声望，新解锁在下一局生效。</p></div>' +
       '<div class="setup-summary"><b>累计声望 ' + fmt(g.totalRep) + '</b><span>携带额度 ' + g.capacity + ' 点 · 已开放蓝图 ' + g.blueprintIds.length + ' 张 · 每局蓝图刷新 ' + g.rerolls + ' 次</span></div>' +
-      '<p class="goal-note">失败仍获得本局声望；中途重开不结算。困难通关奖励为普通的 1.5 倍（向上取整），首通奖励按关卡固定。旧账本金额和已解锁权限保留，历史通关视为已领取首通，不补发奖励。</p>' +
+      '<p class="goal-note">本局声望 100% 计入累计，失败也保留；中途重开不结算。困难通关奖励为普通的 2 倍，首通奖励按关卡固定、每难度各领一次。旧账本金额和已解锁权限保留，历史通关视为已领取首通，不补发奖励。</p>' +
       '<div class="growth-list">' + growthMilestones().map(function (r) {
         var unlocked = milestoneUnlocked(r, g.totalRep, g.legacyUnlockRep);
         return '<div class="growth-item' + (unlocked ? ' unlocked' : '') + '"><div><b>' + (unlocked ? '✓ ' : '◇ ') + r.name + '</b><span>' + r.description + '</span></div>' +
@@ -443,7 +446,7 @@
         return r.label + ' ≥' + r.target;
       }).join('、') + '</div>' +
       growthSummaryHtml() +
-      '<div class="setup-rewards"><b>成长奖励预览</b><span>本局声望 ＋ 通关 ' + reward.clearBonus + ' ＋ 首通 ' + reward.firstClearBonus +
+      '<div class="setup-rewards"><b>成长奖励预览</b><span>本局声望 100% ＋ 通关 ' + reward.clearBonus + ' ＋ 首通 ' + reward.firstClearBonus +
       (reward.firstCleared ? '（此难度已领取）' : '（此关此难度仅一次）') + '</span><small>通关才获得额外奖励；未通关仍累计本局声望。</small></div>' +
       '<fieldset class="setup-group"><legend>难度</legend><div class="setup-options difficulties">' +
       G.DIFFICULTIES.map(function (d) { return option(d, 'difficultyId'); }).join('') + '</div></fieldset>' +
@@ -722,7 +725,7 @@
       '<div class="end-kicker">30 回合 · 建设目标决定通关 · 声望记录经营成绩</div>' +
       '<h2>规则速览</h2>' +
       '<p><b>本局配置</b>：' + configLabel(G.getState().runConfig) + '。普通采用标准人口需求，困难为八项人口需求 ×1.15。BUFF 可多选，总消耗不超过额度；初始人口增加也会增加需求，蓝图筹备将开局改为 5 选 2。配置与成长在开局时固定，之后解锁不追补当前局。成绩按关卡、难度、BUFF 组合及有效成长功能分别记录。</p>' +
-      '<p><b>局外成长</b>：完成 T30 后，累计收入为本局声望＋通关奖励＋首通奖励；未通关仍累计本局声望，中途重开不结算。首通按关卡和难度各领取一次，更换 BUFF 不重复领取。达到门槛自动解锁 BUFF、携带额度、新关卡、蓝图刷新和新蓝图，不扣除声望。累计 900／1800 各解锁三关；蓝图刷新按成长每局共 1／2 次，开局和升级抽取共用，不消耗建造行动；新蓝图先加入随机池，仍需抽取再建造。</p>' +
+      '<p><b>局外成长</b>：完成 T30 后，本局声望 100% 计入累计，再加通关奖励和首通奖励；困难通关奖励为普通的 2 倍。未通关仍累计本局声望，中途重开不结算。首通按关卡和难度各领取一次，更换 BUFF 不重复领取。达到门槛自动解锁 BUFF、携带额度、新关卡、蓝图刷新和新蓝图，不扣除声望。累计 ' + chapterThresholds().join('／') + ' 各解锁三关；蓝图刷新按成长每局共 1／2 次，开局和升级抽取共用，不消耗建造行动；新蓝图先加入随机池，仍需抽取再建造。</p>' +
       '<p><b>建设目标</b>：开局选择关卡，要求固定且全程可见。多项资源分别验收，富余资源不能抵消另一项的缺口。</p><ul>' +
       G.SCENARIOS.map(function (s, index) { return '<li><b>第 ' + (index + 1) + ' 关 · ' + s.name + '</b>：' +
         s.requirements.map(function (r) { return r.label + ' ≥' + r.target; }).join('、') + '。</li>'; }).join('') + '</ul>' +
