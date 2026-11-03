@@ -1,5 +1,5 @@
 /*
- * 城建设计局 · v3.13.0 引擎
+ * 城建设计局 · v3.15.1 引擎
  * 纯逻辑、无 DOM，可在 Node 里直接 require 测试。
  *
  * 核心：30 回合 / 每回合 1 次建造或城镇升级 / 8 资源 / 人口常驻占用劳力 /
@@ -29,19 +29,68 @@
 
   var DIFFICULTIES = [
     { id: 'normal', name: '普通', description: '采用标准人口需求。', populationDemandMultiplier: 1 },
-    { id: 'hard', name: '困难', description: '人口的八项资源需求 ×1.15。', populationDemandMultiplier: 1.15 }
+    { id: 'hard', name: '困难', description: '启用本关专属困难规则，附加词缀不限选择数量，奖励可叠加。' }
+  ];
+  var HARD_RULES_VERSION = 2;
+  var HARD_RULES = {
+    town: { name: '拮据开局', description: '初始金钱 −80。', effects: { startingMoney: -80 } },
+    agriculture: { name: '粮食紧缺', description: '人口食物需求 ×1.5。', effects: { populationDemandMultiplier: { food: 1.5 } } },
+    education: { name: '求学热潮', description: '人口教育需求 ×1.35。', effects: { populationDemandMultiplier: { education: 1.35 } } },
+    industry: { name: '工业负荷', description: '人口原料、电力需求 ×1.4。', effects: { populationDemandMultiplier: { material: 1.4, power: 1.4 } } },
+    health: { name: '医疗压力', description: '人口药品需求 ×1.35、用水需求 ×1.2。', effects: { populationDemandMultiplier: { medicine: 1.35, water: 1.2 } } },
+    metropolis: { name: '基础承压', description: '人口食物、原料、电力、用水需求 ×1.25。', effects: { populationDemandMultiplier: { food: 1.25, material: 1.25, power: 1.25, water: 1.25 } } },
+    logistics: { name: '物资周转', description: '人口食物、原料需求 ×1.3。', effects: { populationDemandMultiplier: { food: 1.3, material: 1.3 } } },
+    manufacturing: { name: '消费升级', description: '人口衣服、家具需求 ×1.25。', effects: { populationDemandMultiplier: { clothes: 1.25, furniture: 1.25 } } },
+    research: { name: '科研负荷', description: '人口教育、电力需求 ×1.25。', effects: { populationDemandMultiplier: { education: 1.25, power: 1.25 } } },
+    resilience: { name: '全面紧缺', description: '人口八项资源需求 ×1.1。', effects: { populationDemandMultiplier: { food: 1.1, material: 1.1, power: 1.1, water: 1.1, clothes: 1.1, furniture: 1.1, medicine: 1.1, education: 1.1 } } },
+    care: { name: '民生期待', description: '人口衣服、家具、药品、教育需求 ×1.1。', effects: { populationDemandMultiplier: { clothes: 1.1, furniture: 1.1, medicine: 1.1, education: 1.1 } } },
+    capital: { name: '建设溢价', description: '所有建筑的建造价格 ×1.2，向上取整。', effects: { buildingCostMultiplier: 1.2 } }
+  };
+  var AFFIXES = [
+    { id: 'idle', name: '闲人', description: '固定 1 人无法工作，仍计入人口和全部需求。', rewardPercent: 20, effects: { idleWorkers: 1 } },
+    { id: 'tight_budget', name: '预算缩减', description: '初始金钱 −25。', rewardPercent: 10, effects: { startingMoney: -25 } },
+    { id: 'dry', name: '干燥气候', description: '人口用水需求 ×1.1。', rewardPercent: 10, effects: { populationDemandMultiplier: { water: 1.1 } } },
+    { id: 'rations', name: '额外口粮', description: '人口食物需求 ×1.1。', rewardPercent: 10, effects: { populationDemandMultiplier: { food: 1.1 } } },
+    { id: 'material_need', name: '原料损耗', description: '人口原料需求 ×1.1。', rewardPercent: 10, effects: { populationDemandMultiplier: { material: 1.1 } } },
+    { id: 'power_need', name: '用电高峰', description: '人口电力需求 ×1.1。', rewardPercent: 10, effects: { populationDemandMultiplier: { power: 1.1 } } },
+    { id: 'clothing_need', name: '衣物磨损', description: '人口衣服需求 ×1.1。', rewardPercent: 10, effects: { populationDemandMultiplier: { clothes: 1.1 } } },
+    { id: 'furniture_need', name: '家具折旧', description: '人口家具需求 ×1.1。', rewardPercent: 10, effects: { populationDemandMultiplier: { furniture: 1.1 } } },
+    { id: 'medicine_need', name: '保健需求', description: '人口药品需求 ×1.1。', rewardPercent: 10, effects: { populationDemandMultiplier: { medicine: 1.1 } } },
+    { id: 'education_need', name: '进修热潮', description: '人口教育需求 ×1.1。', rewardPercent: 10, effects: { populationDemandMultiplier: { education: 1.1 } } },
+    { id: 'costly_building', name: '施工加价', description: '建筑价格 ×1.1，与关卡倍率相乘后向上取整。', rewardPercent: 10, effects: { buildingCostMultiplier: 1.1 } },
+    { id: 'cramped', name: '用地紧张', description: '城市建筑总上限 −2 座（24 →22），停用建筑仍占位置。', rewardPercent: 10, effects: { buildingCap: -2 } },
+    { id: 'heavy_tasks', name: '任务繁重', description: '所有任务占用、恶性任务出生负担 ×1.1，再计仓库减免。', rewardPercent: 15, effects: { taskOccupancyMultiplier: 1.1 } },
+    { id: 'unease', name: '民心不安', description: '满意度固定 −3，照常影响声望与掉人口。', rewardPercent: 10, effects: { satisfactionPenalty: 3 } },
+    { id: 'emigration', name: '居民外迁', description: '初始人口 −1，与人口 BUFF 相加；开局结算照常进行。', rewardPercent: 15, effects: { startingPop: -1 } },
+    { id: 'worn_tools', name: '设备老化', description: '建筑的资源产出 ×0.95；投入不减，基础和任务永久供给不受影响。', rewardPercent: 15, effects: { buildingOutputMultiplier: 0.95 } }
   ];
   var BUFFS = [
     { id: 'none', name: '无加成', description: '清空已选 BUFF。', cost: 0, unlockRep: 0, effects: {} },
     { id: 'preparation', name: '建设筹备', description: '初始金钱 +60。', cost: 1, unlockRep: 0, effects: { startingMoney: 60 } },
     { id: 'food_aid', name: '粮食援助', description: '基础食物供给 +2／回合。', cost: 2, unlockRep: 0, effects: { baseSupply: { food: 2 } } },
     { id: 'water_saving', name: '节水设施', description: '人口用水需求 ×0.9。', cost: 1, unlockRep: 0, effects: { populationDemandMultiplier: { water: 0.9 } } },
-    { id: 'settlers', name: '先遣居民', description: '初始人口 +1，同时增加需求；城镇仍需手动升级。', cost: 2, unlockRep: 80, effects: { startingPop: 1 } },
-    { id: 'blueprint_pack', name: '蓝图筹备', description: '开局蓝图改为 5 选 2。', cost: 3, unlockRep: 180, effects: { openingBlueprints: 1 } }
+    { id: 'settlers', name: '先遣居民', description: '初始人口 +1，同时增加需求；城镇仍需手动升级。', cost: 2, unlockRep: 150, effects: { startingPop: 1 } },
+    { id: 'blueprint_pack', name: '蓝图筹备', description: '开局蓝图改为 5 选 2。', cost: 3, unlockRep: 1000, effects: { openingBlueprints: 1 } },
+    { id: 'material_aid', name: '建材援助', description: '基础原料供给 +2／回合。', cost: 2, unlockRep: 1800, newIn314: true, effects: { baseSupply: { material: 2 } } },
+    { id: 'power_aid', name: '电力援助', description: '基础电力供给 +2／回合。', cost: 2, unlockRep: 3000, newIn314: true, effects: { baseSupply: { power: 2 } } },
+    { id: 'civic_support', name: '民生配套', description: '衣服、家具、药品、教育的人口需求 ×0.9。', cost: 3, unlockRep: 5000, newIn314: true,
+      effects: { populationDemandMultiplier: { clothes: 0.9, furniture: 0.9, medicine: 0.9, education: 0.9 } } }
   ];
-  var CAPACITY_LEVELS = [{ rep: 0, capacity: 2 }, { rep: 100, capacity: 3 },
-    { rep: 300, capacity: 4 }, { rep: 600, capacity: 5 }, { rep: 1000, capacity: 6 }];
-  var REROLL_UNLOCK_REP = 120;
+  var CAPACITY_LEVELS = [{ rep: 0, capacity: 2 }, { rep: 250, capacity: 3 },
+    { rep: 1500, capacity: 4 }, { rep: 2500, capacity: 5 }, { rep: 4500, capacity: 6 }, { rep: 7500, capacity: 7 }];
+  var REROLL_UNLOCK_REP = 300;
+  var SECOND_REROLL_REP = 5500;
+  var REWARD_VERSION = 1;
+  function legacyGrowthRep(rep) {
+    if (rep === undefined) rep = 0;
+    if (!Number.isSafeInteger(rep) || rep < 0) throw new Error('累计声望无效');
+    var floor = rep;
+    // The old and new milestones have the same order, so one permission floor preserves every old unlock.
+    [[80,150],[100,250],[120,300],[180,1000],[200,1200],[300,1500],[400,2000],[600,2500],[650,3500],[1000,4500]].forEach(function (pair) {
+      if (rep >= pair[0]) floor = Math.max(floor, pair[1]);
+    });
+    return floor;
+  }
   function findDefinition(defs, id) {
     for (var i = 0; i < defs.length; i++) if (defs[i].id === id) return defs[i];
     return null;
@@ -49,7 +98,7 @@
   function normalizeRunConfig(config) {
     var c = config == null ? {} : config;
     if (typeof c !== 'object' || Array.isArray(c) || Object.keys(c).some(function (key) {
-      return key !== 'difficultyId' && key !== 'buffId' && key !== 'buffIds';
+      return key !== 'difficultyId' && key !== 'buffId' && key !== 'buffIds' && key !== 'affixIds' && key !== 'hardRulesVersion';
     })) throw new Error('开局配置无效');
     var difficultyId = c.difficultyId === undefined ? 'normal' : c.difficultyId;
     if (!findDefinition(DIFFICULTIES, difficultyId)) throw new Error('未知难度');
@@ -57,26 +106,48 @@
     var ids = c.buffIds === undefined ? (c.buffId === undefined || c.buffId === 'none' ? [] : [c.buffId]) : c.buffIds;
     if (!Array.isArray(ids)) throw new Error('BUFF 组合格式无效');
     var seen = {};
-    ids.forEach(function (id) {
+    Array.from(ids).forEach(function (id) {
       if (!findDefinition(BUFFS, id) || id === 'none') throw new Error('未知 BUFF 或无效组合');
       if (seen[id]) throw new Error('不能重复携带同一 BUFF');
       seen[id] = true;
     });
-    return { difficultyId: difficultyId, buffIds: ids.slice().sort() };
+    var affixes = c.affixIds === undefined ? [] : c.affixIds;
+    if (!Array.isArray(affixes)) throw new Error('困难词缀格式无效');
+    var seenAffixes = {};
+    Array.from(affixes).forEach(function (id) {
+      if (!findDefinition(AFFIXES, id)) throw new Error('未知困难词缀');
+      if (seenAffixes[id]) throw new Error('不能重复选择同一词缀');
+      seenAffixes[id] = true;
+    });
+    var result = { difficultyId: difficultyId, buffIds: ids.slice().sort() };
+    if (difficultyId === 'normal') {
+      if (affixes.length || c.hardRulesVersion !== undefined) throw new Error('普通模式不能携带困难规则或词缀');
+    } else {
+      var version = c.hardRulesVersion === undefined ? HARD_RULES_VERSION : c.hardRulesVersion;
+      if (version !== 1 && version !== HARD_RULES_VERSION) throw new Error('困难规则版本无效');
+      if (version === 1 && affixes.length) throw new Error('旧版困难存档不能增加词缀');
+      result.hardRulesVersion = version;
+      if (affixes.length) result.affixIds = affixes.slice().sort();
+    }
+    return result;
   }
-  function growthStatus(totalRep) {
+  function growthStatus(totalRep, legacyUnlockRep) {
     if (totalRep === undefined) totalRep = 0;
+    if (legacyUnlockRep === undefined) legacyUnlockRep = 0;
     if (!Number.isSafeInteger(totalRep) || totalRep < 0) throw new Error('累计声望无效');
+    if (!Number.isSafeInteger(legacyUnlockRep) || legacyUnlockRep < 0) throw new Error('旧版成长权限无效');
+    var legacyRep = Math.max(totalRep, legacyUnlockRep);
     var capacity = 2;
-    CAPACITY_LEVELS.forEach(function (level) { if (totalRep >= level.rep) capacity = level.capacity; });
-    return { totalRep: totalRep, capacity: capacity,
-      buffIds: BUFFS.filter(function (b) { return b.id !== 'none' && totalRep >= b.unlockRep; }).map(function (b) { return b.id; }),
-      blueprintIds: BLUEPRINTS.filter(function (b) { return totalRep >= (b.unlockRep || 0); }).map(function (b) { return b.id; }),
-      rerolls: totalRep >= REROLL_UNLOCK_REP ? 1 : 0 };
+    CAPACITY_LEVELS.forEach(function (level) { if ((level.capacity <= 6 ? legacyRep : totalRep) >= level.rep) capacity = level.capacity; });
+    return { totalRep: totalRep, legacyUnlockRep: legacyUnlockRep, capacity: capacity,
+      buffIds: BUFFS.filter(function (b) { return b.id !== 'none' && (b.newIn314 ? totalRep : legacyRep) >= b.unlockRep; }).map(function (b) { return b.id; }),
+      blueprintIds: BLUEPRINTS.filter(function (b) { return legacyRep >= (b.unlockRep || 0); }).map(function (b) { return b.id; }),
+      scenarioIds: SCENARIOS.filter(function (s) { return totalRep >= (s.unlockRep || 0); }).map(function (s) { return s.id; }),
+      rerolls: totalRep >= SECOND_REROLL_REP ? 2 : legacyRep >= REROLL_UNLOCK_REP ? 1 : 0 };
   }
-  function runConfigStatus(config, totalRep) {
+  function runConfigStatus(config, totalRep, legacyUnlockRep) {
     try {
-      var c = normalizeRunConfig(config), g = growthStatus(totalRep), cost = 0, locked = [];
+      var c = normalizeRunConfig(config), g = growthStatus(totalRep, legacyUnlockRep), cost = 0, locked = [];
       c.buffIds.forEach(function (id) {
         var b = findDefinition(BUFFS, id); cost += b.cost;
         if (g.buffIds.indexOf(id) < 0) locked.push(b.name);
@@ -85,15 +156,32 @@
         error: locked.length ? '尚未解锁：' + locked.join('、') : cost > g.capacity ? 'BUFF 消耗超过总额度' : '' };
     } catch (e) { return { ok: false, error: e.message }; }
   }
-  function runModifiers(config) {
+  function hardRule(config, scenarioId) {
+    var c = normalizeRunConfig(config);
+    if (c.difficultyId !== 'hard') return null;
+    if (c.hardRulesVersion === 1) return { name: '旧版困难', description: '人口八项资源需求 ×1.15；沿用此存档的原始规则。', effects: {} };
+    if (!Object.prototype.hasOwnProperty.call(HARD_RULES, scenarioId)) throw new Error('困难规则关卡无效');
+    return JSON.parse(JSON.stringify(HARD_RULES[scenarioId]));
+  }
+  function runModifiers(config, scenarioId) {
+    var current = config === undefined;
     var c = normalizeRunConfig(config === undefined ? state && state.runConfig : config);
-    var difficulty = findDefinition(DIFFICULTIES, c.difficultyId);
+    var selected = scenarioId === undefined ? (current && state && state.scenarioId || 'town') : scenarioId;
+    var rule = hardRule(c, selected);
     var effects = c.buffIds.map(function (id) { return findDefinition(BUFFS, id).effects; });
-    var populationDemand = {}, baseSupply = {}, cost = 0, money = START_MONEY, pop = START_POP, opening = 1;
-    effects.forEach(function (e) { money += e.startingMoney || 0; pop += e.startingPop || 0; opening += e.openingBlueprints || 0; });
+    if (rule) effects.push(rule.effects);
+    (c.affixIds || []).forEach(function (id) { effects.push(findDefinition(AFFIXES, id).effects); });
+    var populationDemand = {}, baseSupply = {}, cost = 0, money = START_MONEY, pop = START_POP, opening = 1, idle = 0, price = 1;
+    var cap = CAP, taskMultiplier = 1, outputMultiplier = 1, satisfactionPenalty = 0;
+    effects.forEach(function (e) {
+      money += e.startingMoney || 0; pop += e.startingPop || 0; opening += e.openingBlueprints || 0;
+      idle += e.idleWorkers || 0; price *= e.buildingCostMultiplier || 1;
+      cap += e.buildingCap || 0; taskMultiplier *= e.taskOccupancyMultiplier || 1;
+      outputMultiplier *= e.buildingOutputMultiplier || 1; satisfactionPenalty += e.satisfactionPenalty || 0;
+    });
     RES.forEach(function (r) {
       // Keep full rate precision; round the final city demand once, after population multiplication.
-      var multiplier = difficulty.populationDemandMultiplier;
+      var multiplier = c.difficultyId === 'hard' && c.hardRulesVersion === 1 ? 1.15 : 1;
       baseSupply[r.key] = 0;
       effects.forEach(function (e) {
         multiplier *= (e.populationDemandMultiplier || {})[r.key] || 1;
@@ -103,9 +191,21 @@
       cost += populationDemand[r.key];
     });
     return { config: c, startingMoney: money, startingPop: pop, openingBlueprints: opening,
+      idleWorkers: idle, buildingCostMultiplier: price, hardRule: rule,
+      buildingCap: cap, taskOccupancyMultiplier: taskMultiplier, buildingOutputMultiplier: outputMultiplier, satisfactionPenalty: satisfactionPenalty,
       populationDemand: populationDemand, baseSupply: baseSupply, occupancyCost: Number(cost.toFixed(8)) };
   }
 
+  var RES = [
+    { key: 'food',      name: '食物', icon: '🌾', group: 'basic',    base: 3, demand: 1.0 },
+    { key: 'material',  name: '原料', icon: '⛏',  group: 'basic',    base: 1, demand: 0.5 },
+    { key: 'power',     name: '电力', icon: '⚡', group: 'basic',    base: 1, demand: 0.5 },
+    { key: 'water',     name: '水',   icon: '💧', group: 'basic',    base: 1, demand: 0.5 },
+    { key: 'clothes',   name: '衣服', icon: '👕', group: 'advanced', base: 0, demand: 1 },
+    { key: 'furniture', name: '家具', icon: '🛋', group: 'advanced', base: 0, demand: 1 },
+    { key: 'medicine',  name: '药品', icon: '💊', group: 'advanced', base: 0, demand: 1 },
+    { key: 'education', name: '教育', icon: '📚', group: 'advanced', base: 0, demand: 1 }
+  ];
   var SCENARIOS = [
     { id: 'town', name: '安居小镇', icon: '🏘', tag: '教学',
       description: '补足基础供给，接纳新人口，让城市安稳运转。',
@@ -153,19 +253,38 @@
         { key: 'balance', resource: 'water', label: '水净余量', target: 0 }
       ] }
   ];
+  SCENARIOS = SCENARIOS.concat([
+    { id: 'logistics', name: '物流枢纽', icon: '🚚', tag: '双资源调度', unlockRep: 2000,
+      description: '同时储备食物与原料，支撑物流城市持续扩张。', requirements: [
+        { key: 'pop', label: '人口', target: 15 }, { key: 'balance', resource: 'food', label: '食物净余量', target: 10 },
+        { key: 'balance', resource: 'material', label: '原料净余量', target: 10 }, { key: 'sat', label: '满意度', target: 50 }] },
+    { id: 'manufacturing', name: '轻工之城', icon: '🧵', tag: '双产业专精', unlockRep: 2000,
+      description: '发展服装与家具双产业，为制造业配足基础投入。', requirements: [
+        { key: 'pop', label: '人口', target: 15 }, { key: 'balance', resource: 'clothes', label: '衣服净余量', target: 8 },
+        { key: 'balance', resource: 'furniture', label: '家具净余量', target: 8 }, { key: 'sat', label: '满意度', target: 55 }] },
+    { id: 'research', name: '科研新城', icon: '🔬', tag: '教育与能源', unlockRep: 2000,
+      description: '建设教育高地，同时保障科研所需的电力储备。', requirements: [
+        { key: 'pop', label: '人口', target: 15 }, { key: 'balance', resource: 'education', label: '教育净余量', target: 10 },
+        { key: 'balance', resource: 'power', label: '电力净余量', target: 8 }, { key: 'sat', label: '满意度', target: 60 }] },
+    { id: 'resilience', name: '韧性之城', icon: '🛡', tag: '全资源平衡', unlockRep: 4500,
+      description: '让八项资源同时收支平衡，形成完整城市供给体系。', requirements: [
+        { key: 'pop', label: '人口', target: 18 }, { key: 'sat', label: '满意度', target: 70 }].concat(RES.map(function (r) {
+          return { key: 'balance', resource: r.key, label: r.name + '净余量', target: 0 };
+        })) },
+    { id: 'care', name: '宜居都会', icon: '🌳', tag: '四项民生储备', unlockRep: 4500,
+      description: '接纳更多居民，并让四项高级民生资源都有额外储备。', requirements: [
+        { key: 'pop', label: '人口', target: 20 }, { key: 'sat', label: '满意度', target: 75 }].concat(['clothes','furniture','medicine','education'].map(function (key) {
+          return { key: 'balance', resource: key, label: RES.filter(function (r) { return r.key === key; })[0].name + '净余量', target: 2 };
+        })) },
+    { id: 'capital', name: '综合首府', icon: '🏛', tag: '终章综合建设', unlockRep: 4500,
+      description: '建设高人口、高品质城市，兼顾基础储备与医教产出。', requirements: [
+        { key: 'pop', label: '人口', target: 22 }, { key: 'sat', label: '满意度', target: 70 }].concat(['food','material','power','water','medicine','education'].map(function (key) {
+          return { key: 'balance', resource: key, label: RES.filter(function (r) { return r.key === key; })[0].name + '净余量', target: key === 'medicine' || key === 'education' ? 2 : 4 };
+        })) }
+  ]);
   var SCENARIO_BY_ID = Object.create(null);
   SCENARIOS.forEach(function (s) { SCENARIO_BY_ID[s.id] = s; });
 
-  var RES = [
-    { key: 'food',      name: '食物', icon: '🌾', group: 'basic',    base: 3, demand: 1.0 },
-    { key: 'material',  name: '原料', icon: '⛏',  group: 'basic',    base: 1, demand: 0.5 },
-    { key: 'power',     name: '电力', icon: '⚡', group: 'basic',    base: 1, demand: 0.5 },
-    { key: 'water',     name: '水',   icon: '💧', group: 'basic',    base: 1, demand: 0.5 },
-    { key: 'clothes',   name: '衣服', icon: '👕', group: 'advanced', base: 0, demand: 1 },
-    { key: 'furniture', name: '家具', icon: '🛋', group: 'advanced', base: 0, demand: 1 },
-    { key: 'medicine',  name: '药品', icon: '💊', group: 'advanced', base: 0, demand: 1 },
-    { key: 'education', name: '教育', icon: '📚', group: 'advanced', base: 0, demand: 1 }
-  ];
   var RES_BY_KEY = {};
   RES.forEach(function (r) { RES_BY_KEY[r.key] = r; });
 
@@ -197,9 +316,9 @@
     { id: 'medschool',  name: '医教中心', icon: '🏥', cost: 190, labor: 1, max: 1, out: { medicine: 9, education: 9 }, extra: { water: 4, power: 4, material: 2 } },
     { id: 'market',     name: '市场',     icon: '🏪', cost: 90,  labor: 0, max: 1, out: {}, bonus: { sat: 5 } },
     { id: 'warehouse',  name: '仓库',     icon: '📦', cost: 80,  labor: 0, max: 1, out: {}, bonus: { occDiscount: 0.2 } },
-    { id: 'supplycamp', name: '补给营地', icon: '⛺', cost: 130, labor: 1, max: 1, out: { food: 4, material: 4 }, unlockRep: 200 },
-    { id: 'purifier', name: '净水站', icon: '🚰', cost: 140, labor: 1, max: 1, out: { water: 10 }, extra: { power: 2 }, unlockRep: 400 },
-    { id: 'library', name: '公共图书馆', icon: '📖', cost: 160, labor: 1, max: 1, out: { education: 10 }, extra: { material: 1, power: 1 }, unlockRep: 650 }
+    { id: 'supplycamp', name: '补给营地', icon: '⛺', cost: 130, labor: 1, max: 1, out: { food: 4, material: 4 }, unlockRep: 1200 },
+    { id: 'purifier', name: '净水站', icon: '🚰', cost: 140, labor: 1, max: 1, out: { water: 10 }, extra: { power: 2 }, unlockRep: 2000 },
+    { id: 'library', name: '公共图书馆', icon: '📖', cost: 160, labor: 1, max: 1, out: { education: 10 }, extra: { material: 1, power: 1 }, unlockRep: 3500 }
   ];
 
   var ALL_BUILDINGS = BASE_BUILDINGS.concat(BLUEPRINTS);
@@ -209,13 +328,14 @@
   /* 一人八项需求总和，用于把“占用人口”折算成负向产出。 */
   var OCCUPANCY_COST = round2(RES.reduce(function (sum, r) { return sum + r.demand; }, 0));
 
-  function buildingNet(def, config) {
+  function buildingNet(def, config, scenarioId) {
     if (!def || !def.out || !Object.keys(def.out).length) return null;
     var gross = 0;
     var extra = 0;
-    Object.keys(def.out).forEach(function (k) { gross += def.out[k]; });
+    var output = buildingOutput(def, config, scenarioId);
+    Object.keys(output).forEach(function (k) { gross += output[k]; });
     Object.keys(def.extra || {}).forEach(function (k) { extra += def.extra[k]; });
-    return round2(gross - extra - (def.labor || 0) * runModifiers(config).occupancyCost);
+    return round2(gross - extra - (def.labor || 0) * runModifiers(config, scenarioId).occupancyCost);
   }
 
   function isAdvancedBuilding(def) {
@@ -478,10 +598,13 @@
       var def = TASK_BY_ID[t.defId];
       if (t.uid !== excludeUid && def.type === 'malignant' && !t.aReleased) addTo(occ, def.burdenA);
     });
-    if (discount) {
-      RES.forEach(function (r) { occ[r.key] = round2(occ[r.key] * (1 - discount)); });
-    }
-    return occ;
+    return adjustedTaskOccupancy(occ, discount);
+  }
+
+  function adjustedTaskOccupancy(occ, discount) {
+    var result = {}, multiplier = runModifiers().taskOccupancyMultiplier;
+    Object.keys(occ || {}).forEach(function (k) { result[k] = round2(occ[k] * multiplier * (1 - (discount || 0))); });
+    return result;
   }
 
   function compute() {
@@ -506,9 +629,9 @@
       if (isAdvancedBuilding(def)) {
         advancedBuildings.push(b);
         addTo(advancedExtra, def.extra);
-        addTo(advancedOut, def.out);
+        addTo(advancedOut, buildingOutput(def));
       } else {
-        addTo(supply, def.out);
+        addTo(supply, buildingOutput(def));
       }
       addTo(extra, def.extra);
     });
@@ -568,7 +691,7 @@
     }
     if (!advancedStopped) {
       advancedBuildings.forEach(function (b) {
-        var out = BUILDING_BY_ID[b.defId].out;
+        var out = buildingOutput(BUILDING_BY_ID[b.defId]);
         var scaled = {};
         Object.keys(out).forEach(function (k) { scaled[k] = round2(out[k] * advancedMultiplier); });
         addTo(supply, scaled);
@@ -595,7 +718,7 @@
     var sum = round2(per.reduce(function (s, p) { return s + p.score; }, 0));
     var penalty = popPenalty(state.pop);
     var over = round2(per.reduce(function (s, p) { return s + p.over; }, 0));
-    var baseSat = round2(sum - penalty - DEFICIT + market);
+    var baseSat = round2(sum - penalty - DEFICIT + market - modifiers.satisfactionPenalty);
     /* 后期压力：T1–6 为 0，T7 起线性增加到 T30 的 5；不区分基础满意度正负。 */
     var turnPressure = state.turn <= PRESSURE_START ? 0 :
       round2(Math.min(PRESSURE_MAX, (state.turn - PRESSURE_START) * PRESSURE_MAX / (MAX_TURNS - PRESSURE_START)));
@@ -607,7 +730,7 @@
       supply: supply, demand: demand, extra: extra, occ: occ, occDiscount: discount, per: per,
       populationDemand: modifiers.populationDemand, occupancyCost: modifiers.occupancyCost,
       sum: sum, penalty: penalty, over: over,
-      baseSat: baseSat, turnPressure: turnPressure,
+      baseSat: baseSat, turnPressure: turnPressure, affixPenalty: modifiers.satisfactionPenalty,
       sat: sat, repGain: repGain, popLoss: popLoss, market: market,
       advancedStopped: advancedStopped, advancedShort: advancedShort,
       advancedReasons: advancedReasons,
@@ -666,7 +789,7 @@
 
   function openDraw(source, opts) {
     opts = opts || {};
-    var allowed = growthStatus(state.growthRep || 0).blueprintIds;
+    var allowed = growthStatus(state.growthRep || 0, state.legacyUnlockRep).blueprintIds;
     var pool = BLUEPRINTS.filter(function (b) { return allowed.indexOf(b.id) >= 0 && state.unlocked.indexOf(b.id) < 0; });
     if (!pool.length) return false;
     var want = opts.count || 1;
@@ -713,8 +836,8 @@
   function blueprintRerollStatus() {
     if (!state || state.over || !state.pendingDraw) return { ok: false, reason: '当前没有待选蓝图', remaining: 0 };
     var remaining = state.rerollsRemaining || 0;
-    if (!remaining) return { ok: false, reason: growthStatus(state.growthRep || 0).rerolls ? '本局刷新次数已用完' : '累计声望 120 解锁蓝图刷新', remaining: 0 };
-    var fresh = growthStatus(state.growthRep || 0).blueprintIds.filter(function (id) {
+    if (!remaining) return { ok: false, reason: growthStatus(state.growthRep || 0, state.legacyUnlockRep).rerolls ? '本局刷新次数已用完' : '累计声望 ' + REROLL_UNLOCK_REP + ' 解锁蓝图刷新', remaining: 0 };
+    var fresh = growthStatus(state.growthRep || 0, state.legacyUnlockRep).blueprintIds.filter(function (id) {
       return state.unlocked.indexOf(id) < 0 && state.pendingDraw.options.indexOf(id) < 0;
     });
     return { ok: fresh.length > 0, reason: fresh.length ? '' : '没有可替换的新蓝图', remaining: remaining };
@@ -723,7 +846,7 @@
     var status = blueprintRerollStatus();
     if (!status.ok) return { ok: false, error: status.reason };
     var d = state.pendingDraw;
-    var fresh = growthStatus(state.growthRep || 0).blueprintIds.filter(function (id) {
+    var fresh = growthStatus(state.growthRep || 0, state.legacyUnlockRep).blueprintIds.filter(function (id) {
       return state.unlocked.indexOf(id) < 0 && d.options.indexOf(id) < 0;
     });
     var options = shuffle(fresh).slice(0, d.options.length);
@@ -784,8 +907,24 @@
   }
 
   function laborAvailable() {
-    return state.pop - laborUsed();
+    return laborCapacity() - laborUsed();
   }
+
+  function laborCapacity() {
+    return Math.max(0, state.pop - runModifiers().idleWorkers);
+  }
+
+  function buildingCost(def, config, scenarioId) {
+    return Math.ceil(def.cost * runModifiers(config, scenarioId).buildingCostMultiplier);
+  }
+
+  function buildingOutput(def, config, scenarioId) {
+    var output = {}, multiplier = runModifiers(config, scenarioId).buildingOutputMultiplier;
+    Object.keys(def.out || {}).forEach(function (k) { output[k] = round2(def.out[k] * multiplier); });
+    return output;
+  }
+
+  function buildingCapacity() { return runModifiers().buildingCap; }
 
   function buildStatus(defId) {
     var def = BUILDING_BY_ID[defId];
@@ -795,10 +934,10 @@
     if (rewardPending()) return { ok: false, reason: '先选择任务奖励' };
     if (!isBuildingAvailable(defId)) return { ok: false, reason: '蓝图未解锁' };
     if (state.hasBuilt) return { ok: false, reason: '本回合已建造/升级' };
-    if (state.buildings.length >= CAP) return { ok: false, reason: '城市已满 24 座' };
+    if (state.buildings.length >= buildingCapacity()) return { ok: false, reason: '城市已满 ' + buildingCapacity() + ' 座' };
     if (countBuilt(defId) >= def.max) return { ok: false, reason: '已达上限 ' + def.max };
     if (def.labor > laborAvailable()) return { ok: false, reason: '劳力不足' };
-    if (state.money < def.cost) return { ok: false, reason: '金钱不足' };
+    if (state.money < buildingCost(def)) return { ok: false, reason: '金钱不足' };
     return { ok: true, reason: '' };
   }
 
@@ -806,11 +945,12 @@
     var st = buildStatus(defId);
     if (!st.ok) return { ok: false, error: st.reason };
     var def = BUILDING_BY_ID[defId];
-    state.money -= def.cost;
+    var price = buildingCost(def);
+    state.money -= price;
     state.buildings.push({ uid: 'b' + (state.nextUid++), defId: defId, active: true });
     state.hasBuilt = true;
     state.stats.built += 1;
-    log('建造：' + def.name + '（-' + def.cost + ' 金，劳力 ' + def.labor + '）', 'build');
+    log('建造：' + def.name + '（-' + price + ' 金，劳力 ' + def.labor + '）', 'build');
     return { ok: true };
   }
 
@@ -1114,8 +1254,8 @@
     if (state.pendingDraw) return { ok: false, error: '先选择蓝图' };
     if (rewardPending()) return { ok: false, error: '先选择任务奖励' };
     var used = laborUsed();
-    if (used > state.pop) {
-      return { ok: false, error: '劳力不足：已占用 ' + used + ' / 人口 ' + state.pop + '，请先停用建筑' };
+    if (used > laborCapacity()) {
+      return { ok: false, error: '劳力不足：已占用 ' + used + ' / 可工作人口 ' + laborCapacity() + '，请先停用建筑' };
     }
     if (state.turn >= MAX_TURNS) {
       var current = compute();
@@ -1127,7 +1267,8 @@
         money: state.money, built: state.stats.built, popLost: state.stats.popLost,
         level: state.townLevel, scenarioId: state.scenarioId || null,
         cleared: goal ? goal.cleared : null, goal: goal, runConfig: normalizeRunConfig(state.runConfig),
-        runId: state.runId, growthRep: state.growthRep
+        runId: state.runId, growthRep: state.growthRep, legacyUnlockRep: state.legacyUnlockRep,
+        rerollsGranted: state.rerollsGranted, rewardVersion: state.rewardVersion
       };
       log((goal ? goal.name + '：' + (goal.cleared ? '通关' : '未通关') + '。' : '自由经营结束。') +
         '最终声望 ' + state.rep + '。', 'end');
@@ -1152,14 +1293,16 @@
   function newRunId() {
     return 'run-' + (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + '-' + Math.random().toString(36).slice(2));
   }
-  function newGame(seed, scenarioId, config, growthRep) {
+  function newGame(seed, scenarioId, config, growthRep, legacyUnlockRep) {
     var selected = scenarioId === undefined ? 'town' : scenarioId;
     if (!SCENARIO_BY_ID[selected]) throw new Error('未知关卡：' + selected);
     var runConfig = normalizeRunConfig(config);
-    var growth = growthStatus(growthRep);
-    var status = runConfigStatus(runConfig, growth.totalRep);
+    if (runConfig.hardRulesVersion === 1) throw new Error('旧版困难规则仅用于继续存档');
+    var growth = growthStatus(growthRep, legacyUnlockRep);
+    if (growth.scenarioIds.indexOf(selected) < 0) throw new Error('累计声望 ' + SCENARIO_BY_ID[selected].unlockRep + ' 解锁此关');
+    var status = runConfigStatus(runConfig, growth.totalRep, growth.legacyUnlockRep);
     if (!status.ok) throw new Error(status.error);
-    var modifiers = runModifiers(runConfig);
+    var modifiers = runModifiers(runConfig, selected);
     var s = (seed === undefined || seed === null || seed === '') ? Math.floor(Math.random() * 1000000007) : Number(seed);
     if (!isFinite(s)) s = 1;
     s = s >>> 0;
@@ -1169,6 +1312,9 @@
       scenarioId: selected,
       runConfig: runConfig,
       runId: newRunId(), growthRep: growth.totalRep, growthEligible: true, rerollsRemaining: growth.rerolls,
+      rewardVersion: REWARD_VERSION,
+      legacyUnlockRep: growth.legacyUnlockRep,
+      rerollsGranted: growth.rerolls,
       rngState: s,
       turn: 1,
       money: modifiers.startingMoney,
@@ -1197,6 +1343,10 @@
     log(SCENARIO_BY_ID[selected].name + '开局：P' + modifiers.startingPop + '、' + modifiers.startingMoney + ' 金。' +
       findDefinition(DIFFICULTIES, runConfig.difficultyId).name + ' · ' + (runConfig.buffIds.map(function (id) { return findDefinition(BUFFS, id).name; }).join('＋') || '无加成') +
       '；T30 验收建设目标。', 'start');
+    if (modifiers.hardRule) log('困难规则：' + modifiers.hardRule.name + ' · ' + modifiers.hardRule.description, 'start');
+    (runConfig.affixIds || []).forEach(function (id) {
+      var a = findDefinition(AFFIXES, id); log('困难词缀：' + a.name + ' · ' + a.description, 'start');
+    });
     openDraw('opening', { count: modifiers.openingBlueprints, options: modifiers.openingBlueprints > 1 ? 5 : 3 });
     return state;
   }
@@ -1232,23 +1382,49 @@
     var runConfig, growth;
     try {
       s = JSON.parse(JSON.stringify(s));
-      runConfig = normalizeRunConfig(s.runConfig);
-      growth = growthStatus(s.growthRep);
-      var configStatus = runConfigStatus(runConfig, growth.totalRep);
+      if (s.rewardVersion === undefined) {
+        s.legacyUnlockRep = legacyGrowthRep(s.growthRep);
+        if (s.final) s.final.legacyUnlockRep = s.legacyUnlockRep;
+      }
+      // Old saves froze the universal ×1.15 rule. Never change a live city's economics on import.
+      function savedConfig(c) {
+        if (c && c.difficultyId === 'hard' && c.hardRulesVersion === undefined) {
+          c = Object.assign({}, c, { hardRulesVersion: 1 });
+        }
+        return normalizeRunConfig(c);
+      }
+      runConfig = savedConfig(s.runConfig);
+      growth = growthStatus(s.growthRep, s.legacyUnlockRep);
+      if (s.scenarioId && growth.scenarioIds.indexOf(s.scenarioId) < 0) return { ok: false, error: '存档关卡尚未解锁' };
+      var configStatus = runConfigStatus(runConfig, growth.totalRep, growth.legacyUnlockRep);
       if (!configStatus.ok) return { ok: false, error: configStatus.error };
-      if (s.rerollsRemaining !== undefined && (!Number.isInteger(s.rerollsRemaining) || s.rerollsRemaining < 0 || s.rerollsRemaining > growth.rerolls)) {
+      // Saves without rewardVersion used the published v3.13 refresh threshold of 120.
+      var granted = s.rerollsGranted === undefined ? (s.rewardVersion === undefined ? (growth.totalRep >= 120 ? 1 : 0) : growth.rerolls) : s.rerollsGranted;
+      if (!Number.isInteger(granted) || granted < 0 || granted > growth.rerolls) return { ok: false, error: '本局刷新权限无效' };
+      if (s.rerollsRemaining !== undefined && (!Number.isInteger(s.rerollsRemaining) || s.rerollsRemaining < 0 || s.rerollsRemaining > granted)) {
         return { ok: false, error: '蓝图刷新次数无效' };
       }
-      if (s.final && s.final.runConfig != null && JSON.stringify(normalizeRunConfig(s.final.runConfig)) !== JSON.stringify(runConfig)) {
+      if (s.final && s.final.runConfig != null && JSON.stringify(savedConfig(s.final.runConfig)) !== JSON.stringify(runConfig)) {
         return { ok: false, error: '存档开局配置与结算不一致' };
       }
       if (s.final && s.final.growthRep !== undefined && s.final.growthRep !== growth.totalRep) return { ok: false, error: '成长快照与结算不一致' };
+      if (s.final && s.final.legacyUnlockRep !== undefined && s.final.legacyUnlockRep !== growth.legacyUnlockRep) return { ok: false, error: '旧版权限与结算不一致' };
+      if (s.final && s.final.rerollsGranted !== undefined && s.final.rerollsGranted !== granted) return { ok: false, error: '刷新权限与结算不一致' };
       if (s.runId !== undefined && (typeof s.runId !== 'string' || !/^run-[a-zA-Z0-9-]{8,100}$/.test(s.runId))) return { ok: false, error: '本局标识无效' };
       if (s.final && s.final.runId !== undefined && s.final.runId !== s.runId) return { ok: false, error: '本局标识与结算不一致' };
+      if (s.rewardVersion !== undefined && s.rewardVersion !== 0 && s.rewardVersion !== REWARD_VERSION) return { ok: false, error: '成长奖励版本无效' };
+      if (s.final && s.final.rewardVersion !== undefined && s.final.rewardVersion !== s.rewardVersion) return { ok: false, error: '成长奖励版本与结算不一致' };
     } catch (e) { return { ok: false, error: e.message }; }
     state = s;
     state.runConfig = runConfig;
     state.growthRep = growth.totalRep;
+    state.legacyUnlockRep = growth.legacyUnlockRep;
+    if (state.final) state.final.legacyUnlockRep = state.legacyUnlockRep;
+    state.rerollsGranted = granted;
+    if (state.final) state.final.rerollsGranted = granted;
+    // Active legacy cities join the new reward rules; already finished cities keep their old payout.
+    state.rewardVersion = s.rewardVersion === undefined ? (state.over ? 0 : REWARD_VERSION) : s.rewardVersion;
+    if (state.final) state.final.rewardVersion = state.rewardVersion;
     state.rerollsRemaining = s.rerollsRemaining === undefined ? 0 : s.rerollsRemaining;
     if (!state.runId) { state.runId = newRunId(); state.growthEligible = !state.over; }
     if (state.final) state.final.runConfig = normalizeRunConfig(runConfig);
@@ -1278,6 +1454,14 @@
     evaluateScenario: evaluateScenario,
     goalStatus: goalStatus,
     DIFFICULTIES: JSON.parse(JSON.stringify(DIFFICULTIES)),
+    HARD_RULES: JSON.parse(JSON.stringify(HARD_RULES)),
+    HARD_RULES_VERSION: HARD_RULES_VERSION,
+    AFFIXES: JSON.parse(JSON.stringify(AFFIXES)),
+    hardRule: hardRule,
+    buildingCost: buildingCost,
+    buildingCapacity: buildingCapacity,
+    buildingOutput: buildingOutput,
+    adjustedTaskOccupancy: adjustedTaskOccupancy,
     BUFFS: JSON.parse(JSON.stringify(BUFFS)),
     normalizeRunConfig: normalizeRunConfig,
     runModifiers: runModifiers,
@@ -1285,6 +1469,9 @@
     runConfigStatus: runConfigStatus,
     CAPACITY_LEVELS: JSON.parse(JSON.stringify(CAPACITY_LEVELS)),
     REROLL_UNLOCK_REP: REROLL_UNLOCK_REP,
+    SECOND_REROLL_REP: SECOND_REROLL_REP,
+    REWARD_VERSION: REWARD_VERSION,
+    legacyGrowthRep: legacyGrowthRep,
     blueprintRerollStatus: blueprintRerollStatus,
     rerollBlueprints: rerollBlueprints,
     forecastTask: forecastTask,
@@ -1310,6 +1497,7 @@
     TOWN_LEVELS: TOWN_LEVELS,
     laborUsed: laborUsed,
     laborAvailable: laborAvailable,
+    laborCapacity: laborCapacity,
     popPenalty: popPenalty,
     RES: RES,
     BASE_BUILDINGS: BASE_BUILDINGS,

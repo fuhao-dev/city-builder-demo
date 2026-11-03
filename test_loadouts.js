@@ -1,0 +1,48 @@
+const assert=require('node:assert/strict'),G=require('./game.js'),L=require('./loadouts.js');
+let passed=0;
+const eq=(a,b,m)=>{assert.deepEqual(a,b,m);passed++;};
+const ok=(a,m)=>{assert(a,m);passed++;};
+const rejects=(fn,m)=>{assert.throws(fn,undefined,m);passed++;};
+const empty={version:1,slots:[null,null,null]};
+for(const raw of [undefined,null,{},[],{version:9,slots:[]},{version:1,slots:'bad'}])eq(L.load(raw),empty,'bad or absent storage recovers empty slots');
+let data=L.save(empty,0,'起步',['water_saving','preparation']);
+eq(empty,L.load(),'save is immutable');eq(data.slots[0],{name:'起步',buffIds:['preparation','water_saving']},'canonical BUFF-only slot');
+data=L.save(data,1,'蓝图',['blueprint_pack','settlers']);
+data=L.save(data,2,'无加成',[]);
+eq(L.load(JSON.parse(JSON.stringify(data))),data,'all three slots survive persistence');
+eq(L.apply(data.slots[0],'hard',0),G.normalizeRunConfig({difficultyId:'hard',buffIds:['preparation','water_saving']}),'loading retains chosen difficulty');
+const applied=L.apply(data.slots[0],'normal',0);applied.buffIds.pop();eq(data.slots[0].buffIds.length,2,'loaded config does not share saved arrays');
+eq(L.status(data.slots[1],'normal',0).ok,false,'locked BUFF profile remains unavailable');
+eq(L.status(data.slots[1],'normal',1000).ok,false,'unlocked BUFFs still exceed current capacity');
+eq(L.status(data.slots[1],'normal',2500).ok,true,'saved profile becomes usable at sufficient capacity');
+eq(L.load(data).slots[1],data.slots[1],'loading storage never silently drops unavailable BUFFs');
+eq(L.apply(data.slots[2],'normal',0).buffIds,[],'empty BUFF preset is valid');
+eq(L.status(null,'normal',0).ok,false,'empty slot cannot load');
+eq(L.status({},'normal',0).ok,false,'missing BUFF list cannot become no-buff profile');
+for(const bad of [-1,3,1.2,'1',NaN])rejects(()=>L.save(data,bad,'x',[]),'invalid slot rejected');
+for(const bad of [undefined,null,'food_aid',['none'],['fake'],['food_aid','food_aid']])rejects(()=>L.save(data,0,'x',bad),'malformed configuration rejected');
+const updated=L.save(data,0,'替换',['food_aid']);eq(updated.slots[1],data.slots[1],'overwrite preserves other slots');eq(data.slots[0].name,'起步','overwrite leaves source untouched');
+eq(L.save(data,0,'  \n  ',[]).slots[0].name,'方案 1','blank name receives default');
+eq(L.save(data,0,'\u0000测试\u0007',[]).slots[0].name,'测试','control characters removed');
+eq(Array.from(L.save(data,0,'🌱'.repeat(20),[]).slots[0].name).length,16,'long Unicode names truncate without splitting characters');
+const corrupt={version:1,slots:[data.slots[0],{name:'invalid',buffIds:['fake']},data.slots[2],data.slots[1]]};
+eq(L.load(corrupt),{version:1,slots:[data.slots[0],null,data.slots[2]]},'one damaged slot cannot erase other slots or add more slots');
+const city=G.newGame(77,'town'),before=G.exportState();
+rejects(()=>L.apply(data.slots[1],'hard',1000),'oversized preset cannot partially apply');
+eq(L.status({buffIds:['blueprint_pack']},'normal',180,G.legacyGrowthRep(180)).ok,true,'published old blueprint rights permit loading');
+rejects(()=>L.recommendation('unknown','normal',0),'unknown level rejected');
+rejects(()=>L.recommendation('__proto__','normal',0),'inherited property is not a level');
+rejects(()=>L.recommendation('town','invalid',0),'unknown difficulty rejected');
+eq(L.recommendation('care','normal',4499,10000),null,'legacy rights never open future level advice');
+const points=[...new Set([0].concat(G.BUFFS.map(b=>b.unlockRep),G.BLUEPRINTS.map(b=>b.unlockRep||0),G.SCENARIOS.map(s=>s.unlockRep||0),G.CAPACITY_LEVELS.map(l=>l.rep),[G.REROLL_UNLOCK_REP,G.SECOND_REROLL_REP]).flatMap(rep=>[Math.max(0,rep-1),rep]))];
+let recommendations=0;
+for(const rep of points)for(const difficulty of G.DIFFICULTIES)for(const scenario of G.SCENARIOS){
+  const r=L.recommendation(scenario.id,difficulty.id,rep),growth=G.growthStatus(rep);
+  if(!growth.scenarioIds.includes(scenario.id)){eq(r,null,'locked level cannot expose applicable advice');continue;}
+  recommendations++;ok(r.focus.length>0,'each stage has an explanation');
+  const config=L.apply(r,difficulty.id,rep),check=G.runConfigStatus(config,rep);
+  ok(check.ok,'every recommended combination is affordable and unlocked');eq(r.cost,check.cost,'advice quotes actual cost');
+  ok(r.buffIds.every(id=>growth.buffIds.includes(id)),'advice never relies on future unlocks');
+}
+eq(G.exportState(),before,'saving, loading, rejection and advice never alter active city or RNG');
+console.log('PASS '+passed+' loadout assertions ('+recommendations+' legal recommendations)');

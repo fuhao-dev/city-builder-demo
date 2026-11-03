@@ -5,14 +5,17 @@ const G = require('./game.js');
 const profiles = {
   balanced: {weight:2,from:14,margin:2,satWeight:.8},
   focused: {weight:4,from:10,margin:2,satWeight:.7},
-  quality: {weight:3,from:14,margin:4,satWeight:1.2}
+  quality: {weight:3,from:14,margin:4,satWeight:1.2},
+  infrastructure: {weight:6,from:8,margin:3,satWeight:1.2},
+  livable: {weight:4,from:12,margin:2,satWeight:4}
 };
 const selected = {town:'balanced',agriculture:'balanced',education:'quality',
-  industry:'balanced',health:'focused',metropolis:'quality'};
+  industry:'balanced',health:'focused',metropolis:'quality',logistics:'balanced',manufacturing:'focused',
+  research:'focused',resilience:'quality',care:'quality',capital:'quality'};
 const baseOrder = ['medschool','geothermal','recycling','warehouse','greenhouse','market','herb',
   'garment','hydrofarm','deepwell','wind','ranch','pharm2','workshop','academy','textile','supplycamp','purifier','library'];
 const openingOrder = ['greenhouse','hydrofarm','geothermal','recycling','ranch','deepwell','wind',
-  'medschool','warehouse','herb','garment','market','academy','pharm2','workshop','textile'];
+  'medschool','warehouse','herb','garment','market','academy','pharm2','workshop','textile','supplycamp','purifier','library'];
 const must = (r,label) => { assert(r && r.ok,label+': '+JSON.stringify(r)); return r; };
 const net = (c,k) => Math.round((c.supply[k]-c.demand[k]-c.occ[k])*100)/100;
 function evaluate(def,c) {
@@ -37,7 +40,7 @@ function utility(c,s,def,cfg) {
 }
 function adjust(s,def,cfg,trace) {
   for(let guard=0;guard<30;guard++) {
-    const over=G.laborUsed()>s.pop, before=utility(G.compute(),s,def,cfg);
+    const over=G.laborUsed()>G.laborCapacity(), before=utility(G.compute(),s,def,cfg);
     let best;
     for(const b of s.buildings) {
       const d=G.buildingDef(b.defId);
@@ -88,7 +91,9 @@ function play(seed,id,basicOnly=false,profile=selected[id],runConfig,growthRep=0
     }
     if(s.pendingDraw) {
       const resources=def.requirements.filter(r=>r.key==='balance').map(r=>r.resource);
-      const preferred=id==='metropolis'?['medschool','geothermal','recycling','herb','garment','market']:
+      const preferred=['metropolis','resilience','care','capital'].includes(id)?['medschool','geothermal','recycling','herb','garment','market','library']:
+        id==='manufacturing'?['garment','textile','workshop','recycling','geothermal','market']:
+        id==='research'?['academy','library','medschool','wind','geothermal','deepwell']:
         resources.includes('medicine')?['pharm2','medschool','herb','geothermal','recycling','market']:
         resources.includes('material')?['recycling','geothermal','wind','garment','warehouse']:
         resources.includes('food')?['greenhouse','hydrofarm','herb','ranch']:
@@ -115,7 +120,7 @@ function play(seed,id,basicOnly=false,profile=selected[id],runConfig,growthRep=0
             if(G.buildStatus(d.id).ok)preview=G.buildPreview(d.id);
           } finally { if(off)off.active=true; }
           if(!preview||!preview.ok)continue;
-          const value=utility(preview.after,s,def,cfg)-before-Math.sqrt(d.cost)*.1;
+          const value=utility(preview.after,s,def,cfg)-before-Math.sqrt(G.buildingCost(d))*.1;
           if(value>.1&&(!best||value>best.value))best={id:d.id,value,off};
         }
       }
@@ -160,10 +165,12 @@ if(require.main===module) {
   const count=Number(args.seeds||20),start=Number(args.start||30001);
   assert(Number.isInteger(count)&&count>0&&count<=1000,'seeds must be 1–1000');
   assert(Number.isInteger(start)&&start>=0&&start+count-1<=4294967295,'valid seed range');
-  const ids=args.levels?args.levels.split(','):G.SCENARIOS.map(d=>d.id);
+  const growthRep=Number(args.growth||0),stages=G.growthStatus(growthRep).scenarioIds;
+  const ids=args.levels?args.levels.split(','):stages;
   assert(ids.every(id=>G.SCENARIOS.some(d=>d.id===id)),'unknown level');
+  assert(ids.every(id=>stages.includes(id)),'selected level is not unlocked at this growth stage');
   const rows=[],summaries=[];
-  const growthRep=Number(args.growth||0),available=G.growthStatus(growthRep).buffIds;
+  const available=G.growthStatus(growthRep).buffIds;
   const combinations=available.reduce((sets,id)=>sets.concat(sets.map(ids=>ids.concat(id))),[[]]);
   const configs=args.matrix==='1'?G.DIFFICULTIES.flatMap(d=>combinations.map(buffIds=>({difficultyId:d.id,buffIds})))
     .filter(c=>G.runConfigStatus(c,growthRep).ok):

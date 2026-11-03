@@ -14,20 +14,20 @@ function ready(config,scenario='town') {
   return s;
 }
 eq(G.DIFFICULTIES.map(x=>x.id),['normal','hard'],'two difficulties');
-eq(G.BUFFS.map(x=>x.id),['none','preparation','food_aid','water_saving','settlers','blueprint_pack'],'base and growth buffs');
+eq(G.BUFFS.map(x=>x.id),['none','preparation','food_aid','water_saving','settlers','blueprint_pack','material_aid','power_aid','civic_support'],'base and growth buffs');
 eq(G.normalizeRunConfig(),normal,'standard default');
 eq(G.runModifiers(normal).occupancyCost,6.5,'baseline worker cost');
-eq(G.runModifiers({difficultyId:'hard'}).occupancyCost,7.475,'hard worker cost retains precision');
+eq(G.runModifiers({difficultyId:'hard'}).occupancyCost,6.5,'hard worker cost retains precision');
 eq(G.runModifiers({buffId:'water_saving'}).occupancyCost,6.45,'water buff updates worker cost');
-eq(G.runModifiers({difficultyId:'hard',buffId:'water_saving'}).occupancyCost,7.4175,'multiplicative demand modifiers');
+eq(G.runModifiers({difficultyId:'hard',buffId:'water_saving'}).occupancyCost,6.45,'multiplicative demand modifiers');
 
 for(const d of G.DIFFICULTIES)for(const b of G.BUFFS.filter(b=>b.unlockRep===0)) {
   const config={difficultyId:d.id,buffId:b.id},s=ready(config),c=G.compute();
   eq(s.runConfig,G.normalizeRunConfig(config),'run stores canonical chosen ids');
-  eq(s.money,b.id==='preparation'?360:300,'starting money applies once');
+  eq(s.money,(b.id==='preparation'?360:300)-(d.id==='hard'?80:0),'starting money applies once');
   eq(c.supply.food,b.id==='food_aid'?5:3,'food aid modifies recurring base supply');
   for(const r of G.RES) {
-    const rate=r.demand*(d.id==='hard'?1.15:1)*(b.id==='water_saving'&&r.key==='water'?.9:1);
+    const rate=r.demand*(b.id==='water_saving'&&r.key==='water'?.9:1);
     eq(c.demand[r.key],round(5*rate),config.difficultyId+'/'+config.buffId+' demand '+r.key);
   }
   const before=snapshot(),fc=G.forecast();
@@ -43,13 +43,13 @@ for(const d of G.DIFFICULTIES)for(const b of G.BUFFS.filter(b=>b.unlockRep===0))
 }
 
 const input={difficultyId:'hard',buffId:'water_saving'};
-const precision=ready(input);
+const precision=ready(input,'metropolis');
 input.buffId='food_aid';
 eq(precision.runConfig.buffIds,['water_saving'],'caller cannot change chosen configuration through original argument');
 precision.pop=9;
-eq(G.compute().populationDemand.water,.5175,'population rate is not rounded early');
-eq(G.compute().demand.water,4.66,'nine people consume rounded total, not rounded per-person rate');
-const expectedCost=7.4175;
+eq(G.compute().populationDemand.water,.5625,'population rate is not rounded early');
+eq(G.compute().demand.water,5.06,'nine people consume rounded total, not rounded per-person rate');
+const expectedCost=7.0625;
 eq(G.buildingNet(G.buildingDef('farm')),round(6-expectedCost),'building net uses configured worker demand');
 eq(G.buildingNet(G.buildingDef('pharma')),round(11-5-expectedCost),'building inputs do not receive population demand multipliers');
 eq(G.buildingNet(G.buildingDef('farm'),normal),-.5,'explicit baseline net can be compared');
@@ -59,11 +59,11 @@ const inputs=ready({difficultyId:'hard',buffId:'water_saving'},'health');
 inputs.pop=9;inputs.board=[];
 inputs.buildings=[{uid:'pharma',defId:'pharma',active:true}];
 inputs.taskSupply={food:20,material:20,power:20,water:20,clothes:20,furniture:20,medicine:0,education:20};
-eq(G.compute().demand.water,6.66,'extra building water is added after effective population demand');
-eq(G.compute().demand.power,7.18,'extra building electricity is unscaled');
+eq(G.compute().demand.water,6.86,'extra building water is added after effective population demand');
+eq(G.compute().demand.power,6.5,'extra building electricity is unscaled');
 inputs.taskSupply.water=0;
 eq(G.compute().advancedOutputPct,75,'configured low-tier shortage reduces pharmaceuticals');
-eq(G.compute().advancedReasons.find(r=>r.key==='water').popNeed,4.66,'shortage reason uses effective population demand');
+eq(G.compute().advancedReasons.find(r=>r.key==='water').popNeed,4.86,'shortage reason uses effective population demand');
 eq(G.compute().advancedReasons.find(r=>r.key==='water').extraNeed,2,'shortage reason separates building inputs');
 eq(G.compute().supply.medicine,8.25,'actual medicine supply reflects reduction');
 
@@ -75,7 +75,7 @@ for(const config of [{difficultyId:'normal',buffId:'food_aid'},{difficultyId:'ha
   ok(G.acceptTask(task.uid).ok,'task can be accepted');
   eq(G.compute(),preview,'task preview matches actual configured balance');
   const pop=s.pop;
-  eq(preview.demand.water,round(pop*.5*(config.difficultyId==='hard'?1.15:1)*
+  eq(preview.demand.water,round(pop*.5*
     (config.buffId==='water_saving'?.9:1)),'preview uses effective city demand');
 }
 const warehouse=ready({difficultyId:'hard',buffId:'water_saving'});
@@ -86,7 +86,7 @@ eq(G.compute().occ.water,3.2,'warehouse discount is applied once independently o
 const final=ready({difficultyId:'hard',buffId:'food_aid'},'agriculture');
 final.turn=30;final.pop=15;final.board=[];final.active=[];final.money=1000;
 G.RES.forEach(r=>final.taskSupply[r.key]=100);
-final.taskSupply.food=30.25; // Base 3 + aid 2 + reward 30.25 - hard population demand 17.25 = 18.
+final.taskSupply.food=35.5; // Base 3 + aid 2 + reward 35.5 - hard population demand 22.5 = 18.
 eq(G.goalStatus().conditions.find(r=>r.resource==='food').current,18,'configured final goal includes aid and increased demand');
 const beforeFinal=snapshot(),projection=G.forecast();
 eq(snapshot(),beforeFinal,'configured final forecast is pure');
@@ -132,7 +132,7 @@ eq(Object.keys(P.load({'town|bad|none':{cleared:true,bestRep:999},
   'town|hard|none':{cleared:true,bestRep:Infinity}})).length,0,'unknown configurations and corrupt scores are ignored');
 const won=completed;
 let updated=P.record(records,won);
-eq(updated['agriculture|hard|food_aid'].bestRep,won.final.rep,'clear credited only to actual difficulty and buff');
+eq(updated[P.key('agriculture',won.runConfig)].bestRep,won.final.rep,'clear credited only to actual difficulty and buff');
 eq(updated['town|normal|none'].bestRep,100,'new clear retains legacy progress');
 eq(updated['agriculture|hard|none'],undefined,'buffed clear does not credit no-buff challenge');
 eq(P.record(updated,won),updated,'repeated rendering is idempotent');
