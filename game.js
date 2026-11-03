@@ -1,5 +1,5 @@
 /*
- * 城建设计局 · v3.15.1 引擎
+ * 城镇建设局 · v3.16.1 引擎
  * 纯逻辑、无 DOM，可在 Node 里直接 require 测试。
  *
  * 核心：30 回合 / 每回合 1 次建造或城镇升级 / 8 资源 / 人口常驻占用劳力 /
@@ -8,7 +8,7 @@
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
   else root.DSHGame = factory();
-})(typeof self !== 'undefined' ? self : this, function () {
+})(typeof self !== 'undefined' ? self : this, function createEngine() {
   'use strict';
 
   var MAX_TURNS = 30;
@@ -1444,6 +1444,7 @@
   }
 
   return {
+    createInstance: createEngine,
     newGame: newGame,
     getState: getState,
     exportState: exportState,

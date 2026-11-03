@@ -1,8 +1,10 @@
-/* 城建设计局 · v3.15.1 界面 */
+/* 城镇建设局 · v3.16.1 城市大厅与新手引导 */
 (function () {
   'use strict';
 
   var G = window.DSHGame;
+  var mainGame = G;
+  var O = window.DSHOnboarding;
   var P = window.DSHProgress;
   var L = window.DSHLoadouts;
   var $ = function (id) { return document.getElementById(id); };
@@ -12,6 +14,18 @@
   var LEGACY_CAMPAIGN_KEY = 'dsh_city_campaign_v1';
   var GROWTH_KEY = 'dsh_city_growth_v1';
   var LOADOUT_KEY = 'dsh_city_loadouts_v1';
+  var UI_KEY = 'dsh_city_ui_v1';
+  var homeVisible = true;
+  var homeTab = 'scenarios';
+  var blueprintFilter = 'all';
+  var cityTab = 'resources';
+  var resourceDetails = false;
+  var tutorial = null;
+  var tutorialReturnHome = true;
+  var tutorialLastStep = null;
+  var uiPrefs = {};
+  var replacingCity = false;
+  var focusReturn = null;
   var toastTimer = null;
   var taskFilter = 'all';
   var showHelp = false;
@@ -19,36 +33,12 @@
   var drawPick = [];
   var drawKey = null;
   var modalHidden = false;
-  var selectingScenario = false;
   var configuringScenario = null;
   var growthOpen = false;
   var pendingRunConfig = G.normalizeRunConfig();
   var pendingSeed;
   var loadouts = L.load();
   var loadoutNames = [];
-
-  var BP_NOTES = {
-    greenhouse: '食物专精：单座供给更高，节省建筑位',
-    ranch: '食物专精：净产出高，耗少量原料',
-    wind: '电力专精：单座供给更高，节省建筑位',
-    deepwell: '水专精：单座供给更高，节省建筑位',
-    textile: '衣服专精：净产出高于服装厂，耗电/水',
-    workshop: '家具专精：净产出高于家具厂，耗原料/电',
-    pharm2: '药品专精：净产出高于制药厂，耗水/电/原料',
-    academy: '教育专精：净产出高于学校，耗电/水',
-    hydrofarm: '食物 + 水双供；省 1 槽/劳力，耗电',
-    geothermal: '电力 + 水双供；省 1 槽/劳力，耗原料',
-    recycling: '原料 + 电力双供；省 1 槽/劳力，耗水',
-    herb: '食物 + 药品双供；省 1 槽/劳力，耗水/电/原料',
-    garment: '衣服 + 原料双供；省 1 槽/劳力，耗电/水',
-    medschool: '药品 + 教育双供；省 1 槽/劳力，耗水/电/原料',
-    market: '0 劳力，满意度 +5',
-    warehouse: '0 劳力，任务占用 −20%',
-    supplycamp: '食物与原料双供，适合扩张前期',
-    purifier: '高额供水，需要配套电力',
-    library: '教育专精，需要原料和电力'
-  };
-  function bpNote(id) { return BP_NOTES[id] || ''; }
 
   function fmt(n) { return Math.round(n).toLocaleString('zh-CN'); }
   function fmt1(n) { return (Math.round(n * 10) / 10).toFixed(1); }
@@ -119,6 +109,7 @@
     return g;
   }
   function recordGrowth(S) {
+    if (tutorial) return;
     var before = loadGrowth(), after = P.creditGrowth(before, S);
     if (JSON.stringify(before) !== JSON.stringify(after)) {
       try { localStorage.setItem(GROWTH_KEY, JSON.stringify(after)); }
@@ -126,12 +117,14 @@
     }
   }
   function recordClear(S) {
+    if (tutorial) return;
     var records = loadCampaign();
     var updated = P.record(records, S);
     if (JSON.stringify(updated) === JSON.stringify(records)) return;
     try { localStorage.setItem(CAMPAIGN_KEY, JSON.stringify(updated)); } catch (e) {}
   }
   function persist() {
+    if (tutorial) return;
     var note = $('saveNote');
     try {
       var S = G.getState();
@@ -160,7 +153,105 @@
   }
   function defOfTask(t) { return G.taskDef(t.defId); }
   function defOfBuilding(b) { return G.buildingDef(b.defId); }
-  function resName(key) { return G.resource(key) ? G.resource(key).name : key; }
+  function resName(key) { var r = G.resource(key); return r ? r.icon + ' ' + r.name : key; }
+  function resDescription(text) {
+    return esc(text).replace(/食物|原料|电力|衣服|家具|药品|教育|用水|水/g, function (name, offset, full) {
+      var r = G.RES.filter(function (r) { return r.name === (name === '用水' ? '水' : name); })[0];
+      return r && !full.slice(0,offset).endsWith(r.icon + ' ') ? r.icon + ' ' + name : name;
+    });
+  }
+  function requirementLabel(r) { return (r.resource ? G.resource(r.resource).icon + ' ' : '') + r.label; }
+  function saveUiPrefs() { try { localStorage.setItem(UI_KEY, JSON.stringify(uiPrefs)); } catch (e) {} }
+  function setCityTab(tab) {
+    cityTab = tab;
+    document.body.dataset.cityTab = tab;
+    Array.from($('cityNav').querySelectorAll('[data-city-tab]')).forEach(function (b) {
+      var selected = b.dataset.cityTab === tab;
+      b.classList.toggle('on', selected);
+      b.setAttribute('aria-pressed', String(selected));
+    });
+  }
+  function tutorialAllows(action, value) {
+    if (!tutorial || tutorial.allows(action, value)) return true;
+    toast('跟随当前步骤，或点击「退出练习」');
+    return false;
+  }
+  function tutorialHtml() {
+    var step = tutorial.step();
+    var s = G.getState();
+    var progress = step.id === 'turn' ? ' · 已推进 ' + (s.turn - 1) + ' / 3 回合' : '';
+    return '<div class="guide-copy"><span class="eyebrow">独立练习 · ' + (step.id === 'done' ? '已完成' : (step.index + 1) + ' / ' + step.total) + progress + '</span>' +
+      '<h2>' + step.title + '</h2><p>' + resDescription(step.text) + '</p></div>' +
+      '<div class="guide-actions">' + (step.id === 'welcome' ? '<button class="btn primary" data-guide-next type="button">开始操作 →</button>' :
+        step.id === 'done' ? '<button class="btn primary" data-guide-finish type="button">完成教程</button>' : '') +
+      '<button class="text-btn" data-guide-exit type="button">退出练习</button></div>';
+  }
+  function startTutorial() {
+    tutorialReturnHome = homeVisible;
+    tutorial = O.create(mainGame);
+    G = tutorial.game;
+    homeVisible = false;
+    growthOpen = false;
+    configuringScenario = null;
+    showHelp = false;
+    buildPreviewId = null;
+    drawKey = null; drawPick = [];
+    modalHidden = false;
+    tutorialLastStep = null;
+    render();
+  }
+  function endTutorial(completed) {
+    if (!tutorial) return;
+    uiPrefs.tutorial = completed || uiPrefs.tutorial === 'done' ? 'done' : 'skipped'; saveUiPrefs();
+    tutorial = null;
+    G = mainGame;
+    homeVisible = tutorialReturnHome || !G.getState();
+    showHelp = false; buildPreviewId = null; modalHidden = false;
+    drawKey = null; drawPick = []; tutorialLastStep = null;
+    setCityTab('resources');
+    render();
+    toast(completed ? '教程完成，可以开始建设了' : '已退出练习，原城市进度保留');
+  }
+  function renderTutorial() {
+    var box = $('tutorialPanel');
+    document.body.classList.toggle('is-tutorial', !!tutorial);
+    if (!tutorial) { box.classList.add('hidden'); delete document.body.dataset.tutorialStep; return; }
+    var step = tutorial.step();
+    var changedStep = tutorialLastStep !== step.id;
+    document.body.dataset.tutorialStep = step.id;
+    if (changedStep) {
+      setCityTab(step.target === 'build' ? 'build' : step.target === 'tasks' ? 'tasks' : 'resources');
+      tutorialLastStep = step.id;
+    }
+    box.innerHTML = tutorialHtml();
+    box.classList.toggle('hidden', !$('modal').classList.contains('hidden'));
+    Array.from(document.querySelectorAll('[data-build]')).forEach(function (b) { b.disabled = b.disabled || !tutorial.allows('build', b.dataset.build); });
+    Array.from(document.querySelectorAll('[data-accept]')).forEach(function (b) {
+      var target = tutorial.allows('accept', b.dataset.accept);
+      b.disabled = b.disabled || !target;
+      b.closest('.task-card').classList.toggle('guide-target', target);
+    });
+    Array.from(document.querySelectorAll('[data-abandon], [data-step]')).forEach(function (b) { b.disabled = true; });
+    Array.from(document.querySelectorAll('[data-town-upgrade]')).forEach(function (b) { b.disabled = b.disabled || !tutorial.allows('upgrade'); });
+    $('btnNext').disabled = $('btnNext').disabled || !tutorial.allows('next');
+    $('btnRestart').disabled = true;
+    $('btnGrowth').disabled = true;
+    $('btnHelp').disabled = true;
+    if (step.id === 'reward') {
+      var resourceReward = $('modalCard').querySelector('[data-reward-choice="sup"]');
+      if (resourceReward) resourceReward.disabled = true;
+    }
+    if (!$('modal').classList.contains('hidden') && step.id !== 'welcome') {
+      var guidance = document.createElement('div');
+      guidance.className = 'tutorial-callout'; guidance.innerHTML = tutorialHtml();
+      $('modalCard').prepend(guidance);
+    }
+    if (changedStep) {
+      if (!$('modal').classList.contains('hidden')) $('modalCard').scrollTop = 0;
+      else box.scrollIntoView({ block: 'start', behavior: 'instant' });
+    }
+    $('saveNote').textContent = '练习不覆盖存档';
+  }
   function round2(n) { return Math.round(n * 100) / 100; }
   function taskOccText(def, t) {
     var c = G.taskResourcePreview(t.uid);
@@ -216,15 +307,137 @@
     return type === 'timed' ? 0 : type === 'malignant' ? 1 : 2;
   }
 
+  function requirementChips(requirements) {
+    var grouped = {}, result = [];
+    requirements.forEach(function (r) {
+      if (r.key !== 'balance') result.push('<span>' + esc(requirementLabel(r)) + ' <b>≥' + r.target + '</b></span>');
+      else (grouped[r.target] || (grouped[r.target] = [])).push(r);
+    });
+    Object.keys(grouped).forEach(function (target) {
+      var rows = grouped[target];
+      result.push('<span title="' + esc(rows.map(requirementLabel).join('、')) + '">' +
+        rows.map(function (r) { return resName(r.resource); }).join(' / ') +
+        (rows.length > 1 ? ' 净余量各' : ' 净余量') + ' <b>≥' + target + '</b></span>');
+    });
+    return result.join('');
+  }
+  function homeScenariosHtml(g) {
+    var records = loadCampaign();
+    return [0].concat(chapterThresholds()).map(function (threshold, chapter) {
+      var stages = G.SCENARIOS.filter(function (s) { return (s.unlockRep || 0) === threshold; });
+      return '<section class="chapter"><div class="section-heading"><h2>' + ['基础建设', '产业拓展', '城市进阶'][chapter] + '</h2><span>' +
+        (threshold && g.totalRep < threshold ? '累计 ' + fmt(threshold) + ' 声望解锁 · 还差 ' + fmt(threshold - g.totalRep) : stages.length + ' 个关卡') + '</span></div>' +
+        '<div class="home-scenarios">' + stages.map(function (s) {
+          var index = G.SCENARIOS.indexOf(s), locked = g.scenarioIds.indexOf(s.id) < 0;
+          var cleared = Object.keys(records).some(function (k) { return k.indexOf(s.id + '|') === 0; });
+          var normal = Object.keys(records).some(function (k) { return k.indexOf(s.id + '|normal|') === 0; });
+          var hard = Object.keys(records).some(function (k) { return k.indexOf(s.id + '|hard|') === 0; });
+          return '<button class="home-scenario' + (locked ? ' locked' : '') + '" data-scenario="' + s.id + '" type="button"' + (locked ? ' disabled' : '') + '>' +
+            '<div class="scenario-top"><span class="scenario-number">' + String(index + 1).padStart(2, '0') + ' / ' + s.tag + '</span><span class="status-pill' + (cleared ? ' complete' : '') + '">' +
+            (locked ? '未解锁' : cleared ? '✓ 已通关' : '可挑战') + '</span></div>' +
+            '<div class="scenario-name"><span>' + s.icon + '</span><h3>' + s.name + '</h3></div>' +
+            '<div class="requirement-chips">' + requirementChips(s.requirements) + '</div>' +
+            '<div class="scenario-bottom"><span>' + (locked ? '声望 ' + fmt(threshold) : (normal ? '普通 ✓' : '普通 ○') + ' · ' + (hard ? '困难 ✓' : '困难 ○')) + '</span><b>' + (locked ? '待开放' : '选择关卡 →') + '</b></div></button>';
+        }).join('') + '</div></section>';
+    }).join('');
+  }
+  function growthContentHtml() {
+    var g = currentGrowth(), rows = growthMilestones();
+    var next = rows.filter(function (r) { return !milestoneUnlocked(r, g.totalRep, g.legacyUnlockRep); })[0];
+    return '<div class="section-heading"><h2>声望成长</h2><span>累计达标自动解锁，不消耗声望</span></div>' +
+      '<div class="growth-overview"><div><b>' + g.capacity + '<small> 点</small></b><span>BUFF 携带额度</span></div><div><b>' + g.buffIds.length + '<small> / ' + (G.BUFFS.length - 1) + '</small></b><span>可用 BUFF</span></div><div><b>' + g.rerolls + '<small> 次 / 局</small></b><span>蓝图刷新</span></div><div><b>' + g.scenarioIds.length + '<small> / ' + G.SCENARIOS.length + '</small></b><span>可选关卡</span></div></div>' +
+      '<div class="growth-track">' + rows.map(function (r) {
+        var unlocked = milestoneUnlocked(r, g.totalRep, g.legacyUnlockRep);
+        return '<article class="milestone' + (unlocked ? ' unlocked' : r === next ? ' next' : '') + '"><div class="milestone-mark">' + (unlocked ? '✓' : '◇') + '</div>' +
+          '<div><b>' + r.name + '</b><p>' + resDescription(r.description) + '</p></div><div class="milestone-threshold"><b>' + fmt(r.rep) + '</b><small>' +
+          (unlocked ? (g.totalRep < r.rep ? '旧版权限保留' : '已解锁') : '还差 ' + fmt(r.rep - g.totalRep)) + '</small></div></article>';
+      }).join('') + '</div><details class="plain-details"><summary>声望如何获得？</summary><p>完成 30 回合后，本局声望 100% 计入累计。通关再加关卡奖励与首通奖励；失败仍保留本局声望，中途重开不结算。首通按关卡与难度各领取一次，换 BUFF 或词缀不重复领取。新成长从下一局生效。</p></details>';
+  }
+  function blueprintsHtml(g) {
+    var current = mainGame.getState(), all = G.BLUEPRINTS;
+    var rows = all.filter(function (b) { var unlocked = g.blueprintIds.indexOf(b.id) >= 0; return blueprintFilter === 'all' || (blueprintFilter === 'unlocked' ? unlocked : !unlocked); });
+    return '<div class="section-heading"><div><h2>蓝图图鉴 <small>' + g.blueprintIds.length + ' / ' + all.length + '</small></h2><p>加入随机池后，仍需在局内抽取并建造。</p></div>' +
+      '<div class="filter-bar" aria-label="筛选蓝图">' + [['all','全部'],['unlocked','已开放'],['locked','待解锁']].map(function (f) {
+        return '<button class="filter-btn' + (blueprintFilter === f[0] ? ' on' : '') + '" data-bp-filter="' + f[0] + '" aria-pressed="' + (blueprintFilter === f[0]) + '" type="button">' + f[1] + '</button>';
+      }).join('') + '</div></div>' +
+      '<div class="blueprint-catalog">' + rows.map(function (b) {
+        var unlocked = g.blueprintIds.indexOf(b.id) >= 0, inCity = current && current.unlocked.indexOf(b.id) >= 0;
+        return '<article class="catalog-card' + (unlocked ? '' : ' locked') + '"><div class="catalog-heading"><span class="catalog-icon">' + b.icon + '</span><div><h3>' + b.name + '</h3><span class="status-pill' + (unlocked ? ' complete' : '') + '">' + (unlocked ? '已加入随机池' : '累计 ' + fmt(b.unlockRep) + ' 解锁') + '</span></div></div>' +
+          '<p class="catalog-output">' + outText(b, true) + '</p><p class="catalog-input">' + (extraText(b) ? '投入 ' + extraText(b) : '无额外资源投入') + '</p>' +
+          '<div class="catalog-footer"><span>' + b.cost + ' 金 · ' + b.labor + ' 劳力 · 上限 ' + b.max + '</span><b>' + (inCity ? (current.over ? '上局已选 ✓' : '本局已选 ✓') : unlocked ? '等待局内抽取' : '还差 ' + fmt(b.unlockRep - g.totalRep)) + '</b></div></article>';
+      }).join('') + '</div>' + (!rows.length ? '<div class="empty">此分类暂无蓝图。</div>' : '') + '<p class="home-note">图鉴展示标准建筑参数；本局价格和产出以开局配置、局内卡片为准。</p>';
+  }
+  function renderHome() {
+    var g = currentGrowth(), S = mainGame.getState();
+    if (S && S.over) {
+      recordGrowth(S); recordClear(S);
+      if (S.rep > loadBest()) saveBest(S.rep);
+      g = currentGrowth();
+    }
+    var rows = growthMilestones(), next = rows.filter(function (r) { return !milestoneUnlocked(r, g.totalRep, g.legacyUnlockRep); })[0];
+    var clearedCount = G.SCENARIOS.filter(function (s) { return Object.keys(loadCampaign()).some(function (k) { return k.indexOf(s.id + '|') === 0; }); }).length;
+    $('homeScreen').innerHTML = '<header class="home-header"><a class="home-brand" href="#" aria-label="城镇建设局主界面"><img class="home-app-icon" src="assets/icons/icon-192.png?v=3" alt="" width="48" height="48"><div class="brand-lockup"><h1><img class="wordmark" src="assets/brand/town-construction-bureau-wordmark.png?v=3161a" width="252" height="84" alt="城镇建设局"></h1><span>城市大厅 · v3.16.1</span></div></a><div class="home-header-actions">' +
+      (uiPrefs.tutorial ? '<button class="text-btn" data-start-tutorial type="button">' + (uiPrefs.tutorial === 'done' ? '重玩教程' : '新手教程') + '</button>' : '') + '<button class="btn ghost" data-home-help type="button">玩法帮助</button></div></header>' +
+      '<section class="home-hero"><div class="home-welcome"><span class="eyebrow">从一座小镇开始</span><h2>规划你的下一座城市</h2><p>30 回合，让城市达成建设目标。</p><div class="home-counts"><span><b>' + clearedCount + '</b> / ' + G.SCENARIOS.length + ' 关已通关</span><span><b>' + fmt(loadBest()) + '</b> 最高声望</span></div></div>' +
+      '<div class="home-progress"><span class="eyebrow">累计声望</span><strong>' + fmt(g.totalRep) + '</strong>' +
+      '<div class="progress-track" role="progressbar" aria-label="下一成长目标" aria-valuemin="0" aria-valuemax="' + (next ? next.rep : Math.max(1,g.totalRep)) + '" aria-valuenow="' + g.totalRep + '"><i style="width:' + (next ? Math.min(100,g.totalRep / next.rep * 100) : 100) + '%"></i></div>' +
+      '<p>' + (next ? '下一目标 · ' + next.name + '<span>还差 ' + fmt(next.rep - g.totalRep) + ' 声望</span>' : '所有成长内容已解锁') + '</p></div></section>' +
+      (S ? '<section class="continue-card"><div><span class="eyebrow">' + (S.over ? '上次建设' : '进行中的城市') + '</span><h3>' + (S.scenarioId ? G.SCENARIOS.filter(function (s) { return s.id === S.scenarioId; })[0].name : '自由经营') + '</h3><p>T' + S.turn + ' / 30 · 人口 ' + S.pop + ' · 声望 ' + S.rep + (S.over ? ' · ' + (S.final.cleared ? '已通关' : '已结算') : '') + '</p></div><button class="btn primary" data-resume-city type="button">' + (S.over ? '查看结算' : '继续城市 →') + '</button></section>' : '') +
+      (!uiPrefs.tutorial ? '<section class="learn-card"><span class="learn-icon" aria-hidden="true">✦</span><div><b>第一次当市长？</b><p>选蓝图、建造、完成任务。独立练习，不覆盖城市进度。</p></div><button class="btn primary" data-start-tutorial type="button">新手教程</button><button class="text-btn" data-dismiss-tutorial type="button">稍后学习</button></section>' : '') +
+      '<nav class="home-nav" aria-label="大厅导航">' + [['scenarios','建设关卡',g.scenarioIds.length + ' / ' + G.SCENARIOS.length],['growth','局外成长',g.capacity + ' 点额度'],['blueprints','蓝图图鉴',g.blueprintIds.length + ' / ' + G.BLUEPRINTS.length]].map(function (tab) {
+        return '<button data-home-tab="' + tab[0] + '" aria-pressed="' + (homeTab === tab[0]) + '" class="' + (homeTab === tab[0] ? 'selected' : '') + '" type="button">' + tab[1] + '<small>' + tab[2] + '</small></button>';
+      }).join('') + '</nav><div id="homeContent">' + (homeTab === 'growth' ? growthContentHtml() : homeTab === 'blueprints' ? blueprintsHtml(g) : homeScenariosHtml(g)) + '</div><footer class="home-footer">本机自动保存 · 进度保存在当前浏览器</footer>';
+  }
+  function replaceCityHtml() {
+    var S = mainGame.getState(), target = G.SCENARIOS.filter(function (s) { return s.id === configuringScenario; })[0];
+    return '<div class="modal-head"><h2>开始新的城市？</h2><p>当前 T' + S.turn + ' 城市将被替换，中途结束不结算声望。通关记录和局外成长保留。</p></div>' +
+      '<div class="setup-summary"><b>' + target.icon + ' ' + target.name + '</b><span>' + (pendingRunConfig.difficultyId === 'hard' ? '困难' : '普通') + ' · BUFF ' + pendingRunConfig.buffIds.length + ' · 词缀 ' + (pendingRunConfig.affixIds || []).length + '</span></div>' +
+      '<div class="modal-actions"><button class="btn ghost" data-back-setup type="button">继续配置</button><button class="btn primary" data-confirm-new type="button">替换并开始</button></div>';
+  }
   function render() {
-    if (growthOpen || selectingScenario || configuringScenario) {
+    var wasOpen = !$('modal').classList.contains('hidden');
+    var focused = document.activeElement;
+    var openSections = Array.from($('modalCard').querySelectorAll('details[open] > summary')).map(function (n) { return n.textContent.split('·')[0].trim(); });
+    renderScreen();
+    Array.from($('modalCard').querySelectorAll('details')).forEach(function (d) {
+      if (d.querySelector('summary') && openSections.indexOf(d.querySelector('summary').textContent.split('·')[0].trim()) >= 0) d.open = true;
+    });
+    var isOpen = !$('modal').classList.contains('hidden');
+    $('homeScreen').inert = isOpen;
+    $('gameScreen').inert = isOpen;
+    if (isOpen && !wasOpen) focusReturn = focused;
+    if (isOpen && (!$('modalCard').contains(document.activeElement) || document.activeElement === document.body)) $('modalCard').focus({ preventScroll: true });
+    if (!isOpen && wasOpen) {
+      var target = focusReturn && focusReturn.isConnected ? focusReturn : homeVisible ? $('homeScreen').querySelector('[data-home-tab="' + homeTab + '"]') : $('btnNext');
+      if (target && !target.disabled) target.focus({ preventScroll: true });
+      focusReturn = null;
+    }
+  }
+  function renderScreen() {
+    $('homeScreen').classList.toggle('hidden', !homeVisible);
+    $('gameScreen').classList.toggle('hidden', homeVisible);
+    $('btnGrowth').disabled = false;
+    $('btnRestart').disabled = false;
+    $('tutorialPanel').classList.add('hidden');
+    document.body.classList.toggle('is-home', homeVisible);
+    document.body.classList.toggle('is-tutorial', !!tutorial);
+    if (!tutorial) delete document.body.dataset.tutorialStep;
+    if (homeVisible) renderHome();
+    if (growthOpen || configuringScenario) {
       var detailsOpen = !!$('modalCard').querySelector('.setup-details[open]');
       var presetsOpen = !!$('modalCard').querySelector('.loadout-presets[open]');
-      $('modalCard').innerHTML = growthOpen ? growthHtml() : configuringScenario ? runSetupHtml(detailsOpen, presetsOpen) : scenarioSelectionHtml();
+      var affixesOpen = !!$('modalCard').querySelector('.affix-details[open]');
+      $('modalCard').innerHTML = growthOpen ? growthHtml() : replacingCity ? replaceCityHtml() : runSetupHtml(detailsOpen, presetsOpen, affixesOpen);
       $('modal').classList.remove('hidden');
       $('btnShowModal').classList.add('hidden');
       $('btnNext').disabled = true;
       $('btnHelp').disabled = true;
+      return;
+    }
+    if (homeVisible) {
+      $('modalCard').innerHTML = showHelp ? helpHtml() : '';
+      $('modal').classList.toggle('hidden', !showHelp);
+      $('btnShowModal').classList.add('hidden');
       return;
     }
     var S = G.getState();
@@ -232,7 +445,7 @@
     $('btnHelp').disabled = false;
     var used = G.laborUsed();
     var best = loadBest();
-    if (S.over && S.final && S.final.rep > best) {
+    if (!tutorial && S.over && S.final && S.final.rep > best) {
       best = S.final.rep;
       saveBest(best);
     }
@@ -250,6 +463,7 @@
     renderLog(S);
     renderAction(S, used);
     renderModal(S, best);
+    renderTutorial();
     persist();
   }
 
@@ -278,84 +492,35 @@
   }
 
   function renderResources(S, fc, current) {
-    var c = current;
-    var grid = $('resGrid');
-    if (!c) { grid.innerHTML = ''; $('satMath').textContent = ''; return; }
-    var n = fc && fc.last ? fc.last : null;
-    var nextLabel = S.turn >= G.MAX_TURNS ? (S.scenarioId ? '验收' : '结算') : '下回合';
-    function nextOf(key) {
-      if (!n) return null;
-      for (var i = 0; i < n.per.length; i++) if (n.per[i].key === key) return n.per[i];
-      return null;
-    }
-    grid.innerHTML = c.per.map(function (p) {
-      var np = nextOf(p.key);
-      var score = np ? np.score : p.score;
-      var barP = p;
-      var barTotal = Math.round((barP.dem + barP.occ) * 100) / 100;
-      var coveredDem = Math.max(0, Math.min(barP.dem, barP.sup - barP.occ));
-      var shortDem = Math.max(0, barP.dem - coveredDem);
-      var occPct = barTotal > 0 ? Math.min(100, Math.max(0, (barP.occ / barTotal) * 100)) : 0;
-      var demPct = barTotal > 0 ? Math.max(0, (coveredDem / barTotal) * 100) : 0;
-      var shortPct = barTotal > 0 ? Math.max(0, (shortDem / barTotal) * 100) : 0;
-      var cls = p.group === 'advanced' ? 'advanced' : 'basic';
-      var full = barP.sup > 0 && barP.occ === 0 ? ' full' : barP.sup <= 0 ? ' zero' : '';
-      var barOver = barP.over > 0 ? ' over' : '';
-      var short = shortDem > 0 ? ' short' : '';
-      var deltaCls = np ? (np.score > p.score ? ' up' : np.score < p.score ? ' down' : '') : '';
-      var supCls = np ? (np.sup > p.sup ? ' up' : np.sup < p.sup ? ' down' : '') : '';
-      var advPct = c.advancedOutputPct == null ? 100 : c.advancedOutputPct;
-      var advWarn = p.group === 'advanced' && c.advancedShort > 0;
-      var extraSup = round2(barP.sup - barP.occ - barP.dem);
-      var extraCls = extraSup < 0 ? ' neg' : extraSup > 0 ? ' pos' : '';
-      var extraLabel = extraSup < 0 ? '缺口' : '额外供给';
-      var extraNum = extraSup < 0 ? fmt1(-extraSup) : (extraSup > 0 ? '+' : '') + fmt1(extraSup);
-      return '<article class="res-card ' + cls + full + barOver + short + '" title="额外供给 = 提供 ' + barP.sup + ' − 占用 ' + barP.occ + ' − 需求 ' + barP.dem + '；供给 ' + barP.sup + ' / 占用 ' + barP.occ + ' / 需求 ' + barP.dem + (shortDem > 0 ? ' / 基础需求缺口 ' + Math.round(shortDem * 100) / 100 : '') + '">' +
-        '<div class="res-top"><span class="res-icon">' + p.icon + '</span>' +
-        '<span class="res-name">' + p.name + '</span>' +
-        '<span class="res-tag">' + (p.group === 'advanced' ? '高级' : '基础') + '</span></div>' +
-        '<div class="res-flow">' +
-        '<span class="rf-label">当前</span><b>' + p.sup + '</b>' +
-        '<span class="res-arrow">→</span>' +
-        '<span class="rf-label">' + nextLabel + '</span><b class="res-next' + supCls + '">' + (np ? np.sup : '—') + '</b>' +
-        '<span class="res-sub">/ 需 ' + (np ? np.dem : p.dem) + '</span>' +
-        '</div>' +
-        '<div class="res-extra' + extraCls + '"><span>' + extraLabel + '</span><b>' + extraNum + '</b><small>/ 回合</small></div>' +
-        '<div class="res-scoreline">满足 <b>' + fmt1(p.score) + '</b>' +
-        '<span class="res-arrow">→</span><b class="res-next' + deltaCls + '">' + (np ? fmt1(np.score) : '—') + '</b></div>' +
-        '<div class="bar res-bar' + barOver + short + '">' +
-        '<i class="occ" style="width:' + occPct + '%"></i>' +
-        '<i class="dem" style="width:' + demPct + '%"></i>' +
-        '<i class="shortfall" style="width:' + shortPct + '%"></i></div>' +
-        '<div class="res-foot">供给 ' + barP.sup + ' · 占用 ' + barP.occ + ' · 需求 ' + barP.dem +
-        (barP.over ? ' · <span class="res-over">超额 ' + barP.over + '</span>' : '') +
-        (advWarn ? ' · <span class="res-stopped">低阶不足·' + (advPct > 0 ? '产出 ' + advPct + '%' : '停产') + '</span>' : '') + '</div>' +
-        '</article>';
+    var next = fc && fc.last, grid = $('resGrid');
+    grid.classList.toggle('show-details', resourceDetails);
+    $('btnResourceDetail').textContent = resourceDetails ? '收起数据' : '详细数据';
+    $('btnResourceDetail').setAttribute('aria-pressed', String(resourceDetails));
+    grid.innerHTML = current.per.map(function (p) {
+      var np = next && next.per.filter(function (r) { return r.key === p.key; })[0];
+      var balance = round2(p.sup - p.dem - p.occ), nextBalance = np ? round2(np.sup - np.dem - np.occ) : null;
+      var total = p.dem + p.occ, covered = Math.max(0, Math.min(p.dem, p.sup - p.occ));
+      return '<article class="res-card ' + p.group + (balance < 0 ? ' short' : ' full') + '" aria-label="' + p.name + '余量 ' + balance + '">' +
+        '<div class="res-top"><span class="res-icon">' + p.icon + '</span><span class="res-name">' + p.name + '</span><span class="res-tag">' + (p.group === 'basic' ? '基础' : '民生') + '</span></div>' +
+        '<div class="resource-balance' + (balance < 0 ? ' negative' : '') + '"><span>' + (balance < 0 ? '缺口' : '余量') + '</span><b>' + fmtNet(balance) + '</b></div>' +
+        '<div class="resource-forecast">' + (S.over ? '本局已结束' : nextBalance === null ? '处理选择后显示预测' : (S.turn === G.MAX_TURNS ? '验收' : '下回合') + ' <b class="' + (nextBalance < 0 ? 'negative' : 'positive') + '">' + fmtNet(nextBalance) + '</b>') + '</div>' +
+        (p.group === 'advanced' && current.advancedShort > 0 ? '<small class="resource-warning">基础不足 · 产出 ' + current.advancedOutputPct + '%</small>' : '') +
+        '<div class="res-data"><div>供给 ' + p.sup + ' − 城市需求 ' + p.dem + ' − 任务 ' + p.occ + '</div><div>满足分 ' + fmt1(p.score) + ' / 15</div>' +
+        '<div class="bar res-bar"><i class="occ" style="width:' + (total ? Math.min(100,p.occ / total * 100) : 0) + '%"></i><i class="dem" style="width:' + (total ? covered / total * 100 : 0) + '%"></i></div></div></article>';
     }).join('');
-    var math;
-    if (n) {
-      var pressure = n.turnPressure || 0;
-      math = '当前 <b>' + fmt1(c.sat) + '</b> → ' + nextLabel + ' <b>' + fmt1(n.sat) + '</b>' +
-        '<span class="sat-detail">八项 ' + fmt1(n.sum) + ' − 人口惩罚 ' + fmt1(n.penalty) +
-        ' − 赤字 ' + G.DEFICIT +
-        (n.affixPenalty ? ' − 词缀 ' + n.affixPenalty : '') +
-        (pressure ? ' − <span class="sat-neg">回合压力 ' + fmt1(pressure) + '</span>' : '') +
-        (n.market ? ' + 市场 ' + n.market : '') + '</span>' +
-        '<span class="sat-rep">' + nextLabel + '声望 +' + n.repGain + '（P' + n.pop + ' 上限 +' + G.repCapFor(n.pop) + '）</span>';
-    } else {
-      math = '当前 <b>' + fmt1(c.sat) + '</b> · ' + (S.over ? '本局已结束' :
-        '预测暂不可用（先处理奖励、蓝图或劳力）');
-    }
-    $('satMath').innerHTML = math;
-    $('statRepNext').textContent = n ? nextLabel + '声望 +' + n.repGain : S.over ? '本局已结束' : '下回合 —';
-    $('statRepNext').title = n ? '按预测结算人口 P' + n.pop + '，每回合声望上限 +' + G.repCapFor(n.pop) + '；任务声望奖励不受此上限限制' : '';
+    $('satMath').innerHTML = '<div class="satisfaction-summary"><span>满意度 <b>' + fmt1(current.sat) + '</b>' + (next ? ' → <b>' + fmt1(next.sat) + '</b>' : '') + '</span><span class="' + (next && next.sat < 0 ? 'negative' : 'positive') + '">' +
+      (S.over ? '本局已结束' : !next ? '先处理待选项' : next.sat < 0 ? '下回合会掉人口' : '下回合声望 +' + next.repGain) + '</span></div>' +
+      '<details class="plain-details"><summary>余量与满意度怎么算？</summary><p>余量 = 供给 − 城市需求 − 全部任务占用。满意度由八项资源满足分相加，再减人口惩罚、赤字与回合压力；基础缺口会降低高级建筑产出。</p>' +
+      '<p>当前：资源 ' + fmt1(current.sum) + ' − 人口 ' + fmt1(current.penalty) + ' − 赤字 ' + G.DEFICIT + ' − 压力 ' + fmt1(current.turnPressure || 0) +
+      (current.affixPenalty ? ' − 词缀 ' + current.affixPenalty : '') + (current.market ? ' + 市场 ' + current.market : '') + ' = ' + fmt1(current.sat) + '</p></details>';
+    $('statRepNext').textContent = next ? '下回合 +' + next.repGain : S.over ? '已结束' : '待选择';
   }
 
   function goalConditionHtml(r) {
     var value = r.key === 'balance' ? fmtNet(r.current) : r.key === 'sat' ? fmt1(r.current) : fmt(r.current);
     return '<div class="goal-condition' + (r.met ? ' met' : '') + '">' +
       '<span class="goal-check">' + (r.met ? '✓' : '◇') + '</span>' +
-      '<div><span>' + esc(r.label) + '</span><b>' + value + ' <small>/ ' + r.target + '</small></b></div>' +
+      '<div><span>' + esc(requirementLabel(r)) + '</span><b>' + value + ' <small>/ ' + r.target + '</small></b></div>' +
       '<small class="goal-gap">' + (r.met ? '符合' : '还差 ' + fmt1(r.shortfall)) + '</small></div>';
   }
 
@@ -368,36 +533,16 @@
         '<p class="goal-note">本局记录声望，不参与关卡验收。可在选关后开启新的建设目标。</p>';
       return;
     }
-    $('gameSubtitle').textContent = goal.name + ' · ' + configLabel(S.runConfig);
+    $('gameSubtitle').textContent = goal.name + ' · ' + (S.runConfig.difficultyId === 'hard' ? '困难' : '普通') +
+      (S.runConfig.buffIds.length ? ' · BUFF ' + S.runConfig.buffIds.length : '') + ((S.runConfig.affixIds || []).length ? ' · 词缀 ' + S.runConfig.affixIds.length : '');
+    $('gameSubtitle').title = configLabel(S.runConfig);
     var status = S.over ? (S.final.cleared ? '已通关' : '未通关') :
       goal.cleared ? '当前达标 · 待 T30 验收' : '建设中 · 剩 ' + (G.MAX_TURNS - S.turn) + ' 回合';
     $('goalPanel').innerHTML = '<div class="goal-heading"><h2>' + esc(goal.name) + ' · 建设目标</h2>' +
       '<span class="goal-state' + (goal.cleared ? ' met' : '') + '">' + status + '</span></div>' +
       '<div class="goal-conditions">' + goal.conditions.map(goalConditionHtml).join('') + '</div>' +
-      (G.runModifiers().hardRule ? '<p class="goal-note"><b>' + G.runModifiers().hardRule.name + '</b>：' + G.runModifiers().hardRule.description +
-        (S.runConfig.affixIds ? ' 词缀：' + S.runConfig.affixIds.map(function (id) { var a = G.AFFIXES.filter(function (a) { return a.id === id; })[0]; return a.name + '（' + a.description + '）'; }).join('、') : '') + '</p>' : '') +
-      '<p class="goal-note">' + (S.over ? '本局验收已完成，声望成绩单独保留。' :
-        'T30 完成奖励选择与建设操作后验收，全部条件符合才通关。净余量 = 供给 − 城市需求 − 全部任务占用。') + '</p>';
-  }
-
-  function scenarioSelectionHtml() {
-    var records = loadCampaign(), g = currentGrowth();
-    return '<div class="modal-head"><h2>选择建设关卡</h2>' +
-      '<p>每关 30 回合，达成全部建设目标才算通关。共 ' + G.SCENARIOS.length + ' 关，现已开放 ' + g.scenarioIds.length + ' 关；累计声望 ' + chapterThresholds().join(' / ') + ' 各解锁一批新关卡。</p></div>' +
-      growthSummaryHtml() +
-      '<div class="scenario-grid">' + G.SCENARIOS.map(function (s, index) {
-        var locked = g.scenarioIds.indexOf(s.id) < 0;
-        var count = Object.keys(records).filter(function (key) { return key.indexOf(s.id + '|') === 0; }).length;
-        return '<button class="scenario-card' + (locked ? ' locked' : '') + '" data-scenario="' + s.id + '" type="button"' + (locked ? ' disabled' : '') + '>' +
-          '<span class="scenario-tag">第 ' + (index + 1) + ' 关 · ' + s.tag + '</span><span class="scenario-icon">' + s.icon + '</span>' +
-          '<h3>' + s.name + '</h3><p>' + s.description + '</p>' +
-          '<ul>' + s.requirements.map(function (r) { return '<li>' + r.label + ' ≥ ' + r.target + '</li>'; }).join('') + '</ul>' +
-          '<span class="scenario-record' + (count ? ' cleared' : '') + '">' +
-          (count ? '✓ 已通关 · ' + count + ' 种配置' : '尚未通关') + '</span>' +
-          '<span class="pick-btn">' + (locked ? '累计 ' + s.unlockRep + ' 声望解锁 · 还差 ' + (s.unlockRep - g.totalRep) : '选择难度与 BUFF') + '</span></button>';
-      }).join('') + '</div><p class="goal-note">' +
-      (G.getState() ? '确认开局时替换当前进度；通关记录和最佳声望保留。' : '选择关卡、难度和 BUFF 后，进入开局蓝图。') + '</p>' +
-      (G.getState() ? '<div class="modal-actions"><button class="btn ghost" data-cancel-scenario="1" type="button">返回当前城市</button></div>' : '');
+      (G.runModifiers().hardRule ? '<details class="plain-details goal-rules"><summary>' + G.runModifiers().hardRule.name + ' · 词缀 ' + (S.runConfig.affixIds || []).length + ' · 查看本局规则</summary><p>' + resDescription(G.runModifiers().hardRule.description) + '</p>' +
+        (S.runConfig.affixIds || []).map(function (id) { var a = G.AFFIXES.filter(function (a) { return a.id === id; })[0]; return '<p><b>' + a.name + '</b> · ' + resDescription(a.description) + '</p>'; }).join('') + '</details>' : '');
   }
 
   function chapterThresholds() {
@@ -420,12 +565,6 @@
     return rows.sort(function (a, b) { return a.rep - b.rep; });
   }
   function milestoneUnlocked(row, total, floor) { return (row.legacy ? Math.max(total, floor) : total) >= row.rep; }
-  function growthSummaryHtml() {
-    var g = currentGrowth(), next = growthMilestones().filter(function (r) { return !milestoneUnlocked(r, g.totalRep, g.legacyUnlockRep); })[0];
-    return '<div class="growth-summary"><div><b>累计声望 ' + fmt(g.totalRep) + '</b><span>携带额度 ' + g.capacity + ' · 蓝图池 ' + g.blueprintIds.length + ' · 每局刷新 ' + g.rerolls + ' 次</span>' +
-      '<small>' + (next ? '下个解锁：' + next.name + '，还差 ' + fmt(next.rep - g.totalRep) + ' 声望' : '当前成长已全部解锁') + '</small></div>' +
-      '<button class="btn ghost" data-open-growth="1" type="button">局外成长</button></div>';
-  }
   function growthSettlementHtml(S) {
     var r = loadGrowth().settled[S.runId];
     if (S.growthEligible !== true) return '<p class="end-growth">旧版已结束的对局不补算成长声望。</p>';
@@ -450,26 +589,19 @@
       var advice = r.key === 'pop' ? '为人口奖励预留基础供给，减少低满意度掉人口。' :
         r.key === 'sat' ? '先补基础缺口，再配套高级供给；接任务前查看满意度预测。' :
         '提高' + resName(r.resource) + '供给，并检查人口需求、建筑投入和任务占用。';
-      return '<li>' + esc(r.label) + '还差 ' + fmt1(r.shortfall) + '：' + advice + '</li>';
+      return '<li>' + esc(requirementLabel(r)) + '还差 ' + fmt1(r.shortfall) + '：' + advice + '</li>';
     }).join('') + '</ul></div>';
   }
   function growthHtml() {
-    var g = currentGrowth();
-    return '<div class="modal-head"><h2>局外成长</h2><p>完成 30 回合后，本局声望计入累计；通关额外获得关卡奖励和未领取的首通奖励。首通按关卡 × 难度领取，换 BUFF 不重复发放。累计达标自动解锁，不扣除声望，新解锁在下一局生效。</p></div>' +
-      '<div class="setup-summary"><b>累计声望 ' + fmt(g.totalRep) + '</b><span>携带额度 ' + g.capacity + ' 点 · 已开放蓝图 ' + g.blueprintIds.length + ' 张 · 每局蓝图刷新 ' + g.rerolls + ' 次</span></div>' +
-      '<p class="goal-note">本局声望 100% 计入累计，失败也保留；中途重开不结算。困难通关奖励为普通的 2 倍，首通奖励按关卡固定、每难度各领一次。旧账本金额和已解锁权限保留，历史通关视为已领取首通，不补发奖励。</p>' +
-      '<div class="growth-list">' + growthMilestones().map(function (r) {
-        var unlocked = milestoneUnlocked(r, g.totalRep, g.legacyUnlockRep);
-        return '<div class="growth-item' + (unlocked ? ' unlocked' : '') + '"><div><b>' + (unlocked ? '✓ ' : '◇ ') + r.name + '</b><span>' + r.description + '</span></div>' +
-          '<small>' + (unlocked ? (g.totalRep < r.rep ? '旧版权限保留' : '已解锁') : '累计 ' + fmt(r.rep) + ' · 还差 ' + fmt(r.rep - g.totalRep)) + '</small></div>';
-      }).join('') + '</div><div class="modal-actions"><button class="btn primary" data-close-growth="1" type="button">返回</button></div>';
+    return '<div class="modal-head"><h2>局外成长</h2><p>累计声望 ' + fmt(currentGrowth().totalRep) + ' · 新解锁在下一局生效</p></div>' +
+      growthContentHtml() + '<div class="modal-actions"><button class="btn primary" data-close-growth type="button">返回城市</button></div>';
   }
 
   function loadoutAdviceHtml(g) {
     var advice = L.recommendation(configuringScenario, pendingRunConfig.difficultyId, g.totalRep, g.legacyUnlockRep);
     if (!advice) return '';
     var selected = pendingRunConfig.buffIds.join('|') === advice.buffIds.join('|');
-    return '<section class="loadout-advice" aria-label="本关配装建议"><b>本关建设建议</b><p>' + esc(advice.focus) + '</p>' +
+    return '<section class="loadout-advice" aria-label="本关配装建议"><b>本关建设建议</b><p>' + resDescription(advice.focus) + '</p>' +
       '<div><span>建议 BUFF：' + esc(buffLabel(advice.buffIds)) + ' · ' + advice.cost + ' / ' + g.capacity + ' 点</span>' +
       '<button class="btn ghost" type="button" data-apply-advice="1"' + (selected ? ' disabled' : '') + '>' +
       (selected ? '已采用此组合' : '采用建议 BUFF') + '</button></div>' +
@@ -492,7 +624,7 @@
           (check.ok ? '' : ' disabled') + '>载入</button></div></div>';
       }).join('') + '</div></details>';
   }
-  function runSetupHtml(detailsOpen, presetsOpen) {
+  function runSetupHtml(detailsOpen, presetsOpen, affixesOpen) {
     var s = G.SCENARIOS.filter(function (x) { return x.id === configuringScenario; })[0];
     var m = G.runModifiers(pendingRunConfig, s.id);
     var g = currentGrowth(), status = G.runConfigStatus(pendingRunConfig, g.totalRep, g.legacyUnlockRep);
@@ -506,42 +638,35 @@
       return '<button class="setup-option' + (selected ? ' selected' : '') + '" data-config-field="' + field +
         '" data-config-value="' + def.id + '" aria-pressed="' + selected + '" type="button"' + ((locked || over) && !selected ? ' disabled' : '') + '>' +
         '<b>' + def.name + (buff && def.id !== 'none' ? ' · ' + def.cost + ' 点' : '') + '</b><span>' +
-        (field === 'difficultyId' && def.id === 'hard' ? G.hardRule({ difficultyId: 'hard' }, s.id).name + '：' + G.hardRule({ difficultyId: 'hard' }, s.id).description : def.description) + '</span>' +
+        resDescription(field === 'difficultyId' && def.id === 'hard' ? G.hardRule({ difficultyId: 'hard' }, s.id).name + '：' + G.hardRule({ difficultyId: 'hard' }, s.id).description : def.description) + '</span>' +
         (locked ? '<small>累计 ' + def.unlockRep + ' 声望解锁</small>' : over ? '<small>剩余额度不足</small>' : '') + '</button>';
     }
     return '<div class="modal-head"><h2>' + s.icon + ' ' + s.name + ' · 开局配置</h2>' +
-      '<p>可携带多个不同 BUFF，总消耗不能超过携带额度。点击已选项可移除。</p></div>' +
-      '<div class="setup-goal"><b>通关要求</b>：' + s.requirements.map(function (r) {
-        return r.label + ' ≥' + r.target;
-      }).join('、') + '</div>' +
-      growthSummaryHtml() +
-      '<div class="setup-rewards"><b>成长奖励预览</b><span>本局声望 100% ＋ 通关 ' + reward.clearBonus + ' ＋ 词缀 ' + reward.affixBonus + ' ＋ 首通 ' + reward.firstClearBonus +
-      (reward.firstCleared ? '（此难度已领取）' : '（此关此难度仅一次）') + '</span><small>通关才获得额外奖励；未通关仍累计本局声望。</small></div>' +
+      '<p>选择难度与 BUFF，准备建设。</p></div>' +
+      '<div class="requirement-chips setup-goal" aria-label="通关目标">' + requirementChips(s.requirements) + '</div>' +
       '<fieldset class="setup-group"><legend>难度</legend><div class="setup-options difficulties">' +
       G.DIFFICULTIES.map(function (d) { return option(d, 'difficultyId'); }).join('') + '</div></fieldset>' +
-      (pendingRunConfig.difficultyId === 'hard' ? '<fieldset class="setup-group"><legend>附加困难词缀 · 已选 ' + (pendingRunConfig.affixIds || []).length + ' 项 · 奖励 +' + reward.affixPercent + '%</legend>' +
-        '<p class="goal-note">每种可选一次，数量不限，可全部勾选，不消耗 BUFF 额度。词缀奖励百分比相加、不封顶，以困难通关奖励为基数；不放大本局声望或首通奖励。</p>' +
+      (pendingRunConfig.difficultyId === 'hard' ? '<details class="affix-details plain-details"' + (affixesOpen ? ' open' : '') + '><summary>附加困难词缀 · 已选 ' + (pendingRunConfig.affixIds || []).length + ' 项 · 奖励 +' + reward.affixPercent + '%</summary>' +
+        '<p class="goal-note">数量不限，不占 BUFF 额度。奖励按困难通关奖励计算，百分比相加。</p>' +
         '<div class="affix-actions"><button class="btn ghost" data-affix-action="all" type="button">全选词缀</button><button class="btn ghost" data-affix-action="clear" type="button">清空词缀</button></div><div class="setup-options affixes">' +
         G.AFFIXES.map(function (a) {
           var selected = (pendingRunConfig.affixIds || []).indexOf(a.id) >= 0;
           return '<button class="setup-option' + (selected ? ' selected' : '') + '" data-affix="' + a.id + '" aria-pressed="' + selected + '" type="button">' +
-            '<b>' + a.name + '</b><span>' + a.description + '</span><small>通关词缀奖励 +' + a.rewardPercent + '%</small></button>';
-        }).join('') + '</div></fieldset>' : '') +
-      loadoutAdviceHtml(g) + loadoutPresetsHtml(g, presetsOpen) +
-      '<fieldset class="setup-group"><legend>开局 BUFF · 已用 ' + status.cost + ' / ' + g.capacity + ' 点</legend><div class="setup-options">' +
-      G.BUFFS.map(function (b) { return option(b, 'buffIds'); }).join('') + '</div></fieldset>' +
-      '<div class="setup-summary"><b>' + configLabel(pendingRunConfig) + '</b>' +
-      '<span>初始金钱 ' + m.startingMoney + ' · 初始人口 ' + m.startingPop + ' · 可工作 ' + Math.max(0, m.startingPop - m.idleWorkers) + ' · 开局蓝图 ' + (m.openingBlueprints > 1 ? '5 选 2' : '3 选 1') + ' · 每人需求合计 ' + fmtRate(m.occupancyCost) + '</span>' +
-      '<span>建筑上限 ' + m.buildingCap + ' · 建筑价格 ×' + fmtRate(m.buildingCostMultiplier) + ' · 建筑资源产出 ×' + fmtRate(m.buildingOutputMultiplier) + ' · 任务占用 ×' + fmtRate(m.taskOccupancyMultiplier) + ' · 满意度 −' + m.satisfactionPenalty + '</span>' +
-      '<span>' + (record ? '✓ 此配置已通关 · 最佳通关声望 ' + fmt(record.bestRep) : '此配置尚未通关') + '</span></div>' +
+            '<b>' + a.name + '</b><span>' + resDescription(a.description) + '</span><small>通关奖励 +' + a.rewardPercent + '%</small></button>';
+        }).join('') + '</div></details>' : '') +
+      '<fieldset class="setup-group"><legend>开局 BUFF · ' + status.cost + ' / ' + g.capacity + ' 点</legend><div class="setup-options">' +
+      G.BUFFS.filter(function (b) { return b.id === 'none' || g.buffIds.indexOf(b.id) >= 0; }).map(function (b) { return option(b, 'buffIds'); }).join('') + '</div></fieldset>' +
+      (g.buffIds.length < G.BUFFS.length - 1 ? '<details class="plain-details"><summary>待解锁 BUFF · ' + (G.BUFFS.length - 1 - g.buffIds.length) + ' 种</summary><div class="setup-options">' + G.BUFFS.filter(function (b) { return b.id !== 'none' && g.buffIds.indexOf(b.id) < 0; }).map(function (b) { return option(b, 'buffIds'); }).join('') + '</div></details>' : '') +
+      '<details class="plain-details"><summary>配装建议</summary>' + loadoutAdviceHtml(g) + '</details>' + loadoutPresetsHtml(g, presetsOpen) +
+      '<div class="setup-mini-stats"><span>初始金钱 <b>' + m.startingMoney + '</b></span><span>人口 / 可工作 <b>' + m.startingPop + ' / ' + Math.max(0,m.startingPop - m.idleWorkers) + '</b></span><span>开局蓝图 <b>' + (m.openingBlueprints > 1 ? '5 选 2' : '3 选 1') + '</b></span></div>' +
+      '<div class="setup-rewards"><span>本局声望 100% ＋ 通关 ' + reward.clearBonus + (reward.affixBonus ? ' ＋ 词缀 ' + reward.affixBonus : '') + ' ＋ 首通 ' + reward.firstClearBonus + '</span><small>' + (reward.firstCleared ? '此难度首通已领取' : '首通每关、每难度仅一次') + (record ? ' · ✓ 此配置已通关' : '') + '</small></div>' +
       '<details class="setup-details"' + (detailsOpen ? ' open' : '') + '><summary>查看开局供给和人口需求</summary><table class="setup-table">' +
-      '<thead><tr><th>资源</th><th>基础供给／回合</th><th>人均需求</th><th>P' + m.startingPop + ' 人口需求</th></tr></thead><tbody>' +
+      '<thead><tr><th>资源</th><th>基础供给</th><th>人均需求</th><th>总人口需求</th></tr></thead><tbody>' +
       G.RES.map(function (r) { return '<tr><td>' + r.icon + ' ' + r.name + '</td><td>' +
         (r.base + m.baseSupply[r.key]) + '</td><td>' + fmtRate(m.populationDemand[r.key]) + '</td><td>' +
         fmtRate(round2(m.populationDemand[r.key] * m.startingPop)) + '</td></tr>'; }).join('') +
-      '</tbody></table><p class="goal-note">人口需求按基础值 × 本关困难倍率 × 词缀倍率 × BUFF 倍率计算，汇总城市需求时统一保留两位小数。建筑投入与任务占用另行计入。' +
-      (m.buildingCostMultiplier !== 1 ? '本局建筑价格 ×' + m.buildingCostMultiplier + '，逐座向上取整。' : '') + '</p></details>' +
-      '<div class="modal-actions"><button class="btn ghost" data-back-scenarios="1" type="button">返回选关</button>' +
+      '</tbody></table><p class="goal-note">人口需求按关卡、词缀与 BUFF 倍率叠加；建筑投入与任务占用另计。</p><p class="goal-note">建筑上限 ' + m.buildingCap + ' · 价格 ×' + fmtRate(m.buildingCostMultiplier) + ' · 产出 ×' + fmtRate(m.buildingOutputMultiplier) + ' · 任务占用 ×' + fmtRate(m.taskOccupancyMultiplier) + ' · 满意度 −' + m.satisfactionPenalty + '</p><p class="goal-note">' + configLabel(pendingRunConfig) + '</p></details>' +
+      '<div class="modal-actions setup-actions"><button class="btn ghost" data-back-scenarios="1" type="button">返回主界面</button>' +
       '<button class="btn primary" data-start-configured="1" type="button"' + (status.ok ? '' : ' disabled') + '>开始本局</button></div>';
   }
 
@@ -552,7 +677,7 @@
     hint.className = 'hint' + (used > G.laborCapacity() ? ' danger' : '');
     var list = $('cityList');
     if (!S.buildings.length) {
-      list.innerHTML = '<div class="empty">还没有建筑。先从右边建造基础供给。</div>';
+      list.innerHTML = '<div class="empty">先建一座供给建筑，城市将从这里开始。</div>';
       return;
     }
     var groups = [];
@@ -585,10 +710,6 @@
     var st = G.buildStatus(id);
     var count = S.buildings.filter(function (b) { return b.defId === id; }).length;
     var extra = extraText(d);
-    var note = bpNote(id);
-    var net = G.buildingNet(d);
-    var netLine = net === null ? '' :
-      '<small class="bc-net" title="满产净产出 = 产出 − 额外消耗 − 劳力×' + G.runModifiers().occupancyCost + '；仅用于横向比较，不重复扣实际供需">满产净 ' + fmtNet(net) + ' / 回合</small>';
     var reason = st.ok ? '' : '<span class="bc-reason">' + st.reason + '</span>';
     return '<button class="build-card' + (st.ok ? '' : ' is-dis') + '" data-build="' + id + '"' +
       (st.ok ? '' : ' disabled') + ' title="' + (st.ok ? '预览建造 ' + d.name : st.reason) + '" type="button">' +
@@ -596,9 +717,8 @@
       '<div class="bc-main"><b>' + d.name + '</b>' +
       '<small>' + outText(d) + ' · 劳力 ' + d.labor + '</small>' +
       (extra ? '<small class="extra">耗 ' + extra + '</small>' : '') +
-      (netLine) +
-      (note ? '<small class="bp-note">' + note + '</small>' : '') + '</div>' +
-      '<div class="bc-right"><span class="bc-cost">' + G.buildingCost(d) + '</span>' +
+      '</div>' +
+      '<div class="bc-right"><span class="bc-cost">' + G.buildingCost(d) + ' 金</span>' +
       '<span class="bc-count">' + count + '/' + d.max + '</span>' + reason + '</div>' +
       '</button>';
   }
@@ -647,13 +767,8 @@
   }
 
   function renderTasks(S, fc) {
-    var nextSat = fc && fc.last ? fmt1(fc.last.sat) : '—';
-    var nextRep = fc && fc.last ? fc.last.repGain : 0;
     var nextOver = fc && fc.last ? fc.last.over : 0;
-    var nextLabel = S.turn >= G.MAX_TURNS ? '终局' : '下回合';
-    $('taskHint').textContent = '任务栏 ' + S.board.length + ' · 进行中 ' + S.active.length +
-      ' · ' + nextLabel + '预测 ' + nextSat + ' · ' + nextLabel + '声望 +' + nextRep +
-      (nextOver ? ' · 超额 ' + nextOver : '');
+    $('taskHint').textContent = '待接 ' + S.board.length + ' · 进行中 ' + S.active.length;
     var board = S.board.slice().filter(function (t) {
       return taskFilter === 'all' || defOfTask(t).type === taskFilter;
     }).sort(function (a, b) {
@@ -676,7 +791,7 @@
         var previewCls = preview === null ? '' : preview < 0 ? ' neg' : preview >= G.REP_START ? ' pos' : ' mid';
         var deltaTxt = ft
           ? '<span class="tc-delta ' + (ft.delta >= 0 ? 'pos' : 'neg') + '">变化 ' + (ft.delta >= 0 ? '+' : '') + fmt1(ft.delta) +
-            ' · ' + (S.turn >= G.MAX_TURNS ? '终局' : '下回合') + '声望 +' + ft.last.repGain + '</span>'
+            ' · 声望 +' + ft.last.repGain + '</span>'
           : '';
         var extra = '';
         if (blocked) {
@@ -713,7 +828,7 @@
           '<div class="tc-occ" title="占用含词缀倍率，仓库在汇总后减免；余额 = 接取后供给 − 城市需求（人口及建筑消耗）− 全部任务占用；已计入仓库与高级减产">' + occLabel + '：' + taskOccText(d, t) + '</div>' +
           '<div class="tc-reward">' + rewardText(d) + '</div>' +
           extra +
-          '<div class="tc-foot"><span class="tc-sat' + previewCls + '">接取后预计满意度 ' +
+          '<div class="tc-foot"><span class="tc-sat' + previewCls + '">预计满意度 ' +
           (preview === null ? '—' : fmt1(preview)) + deltaTxt + '</span>' +
           '<button class="btn small primary" data-accept="' + t.uid + '"' +
           (blocked || S.pendingDraw || S.over ? ' disabled' : '') + ' type="button">' +
@@ -723,9 +838,10 @@
     }
 
     $('activeCount').textContent = S.active.length;
+    $('activeSection').classList.toggle('hidden', !S.active.length);
     var act = $('activeList');
     if (!S.active.length) {
-      act.innerHTML = '<div class="empty small">暂无进行中的任务。任务栏不限张数，按占用自然限制。</div>';
+      act.innerHTML = '<div class="empty small">接取任务后，在这里查看进度。</div>';
     } else {
       act.innerHTML = S.active.map(function (t) {
         var d = defOfTask(t);
@@ -774,61 +890,29 @@
     else if (over) hint.textContent = (S.final.goal ? S.final.goal.name + ' · ' + (S.final.cleared ? '通关' : '未通关') : '自由经营结束') + ' · 声望 ' + S.rep;
     else if (laborOver) hint.textContent = '劳力不足：已占用 ' + used + ' / 可工作人口 ' + G.laborCapacity() + '，停用建筑后才能进入下回合';
     else if (finalTurn) hint.textContent = S.scenarioId ? '第 30 回合 · 完成操作后点击验收本关' : '第 30 回合 · 点击结算本局';
-    else if (!S.hasBuilt) hint.textContent = '本回合还可建造或升级 1 次 · 剩 ' + (G.MAX_TURNS - S.turn) + ' 回合 · 种子 ' + S.seed;
-    else hint.textContent = '本回合已建造/升级；可接/放弃任务 · 剩 ' + (G.MAX_TURNS - S.turn) + ' 回合 · 种子 ' + S.seed;
+    else if (!S.hasBuilt) hint.textContent = '还可建造或升级 1 次';
+    else hint.textContent = '建设行动已用 · 可处理任务';
     hint.className = 'action-hint' + (laborOver ? ' danger' : '');
   }
 
   function introHtml() {
-    return '<div class="intro">' +
-      '<div class="intro-goal">目标：<b>达成本关全部建设要求才通关</b>；30 回合累计声望作为经营成绩保留。</div>' +
-      '<div class="intro-goal">本局配置：' + configLabel(G.getState().runConfig) + '</div>' +
-      '<ul>' +
-      '<li><b>资源条</b>：总长度 = 需求 + 占用；金色段为任务占用，青色/蓝色段为已覆盖需求，红色斜纹段为供给缺口；满足分改为文字。</li>' +
-      '<li><b>资源余量</b>：资源卡大字显示“额外供给 / 缺口”，口径为提供 − 占用 − 需求；负数表示满足需求后仍缺的量。</li>' +
-      '<li><b>满意度</b> = 八项资源满足分 − 人口惩罚 − 赤字 ' + G.DEFICIT + ' − 回合压力。&lt;0 掉人口；0–19.99 稳定、不加声望；达到 20 / 35 / 50 / 65 / 75 时，每回合声望分别 +1 / +2 / +3 / +4 / +5。</li>' +
-      '<li><b>人口与声望</b>：人口惩罚分段累加，1–5 人每人扣 1，6–15 人每人扣 0.5，16–25 人每人扣 1，26 人起每人扣 1.5。每回合声望上限按当前人口：P&lt;12 为 +3，P12–14 为 +4，P≥15 为 +5；任务声望奖励不受此上限限制。</li>' +
-      '<li><b>超额减速</b>：任务所用资源的超额合计大于 0 且小于 2 时为 0.8 速，达到 2 且小于 3 时为 0.6 速，达到 3 时为 0.5 速。仓库产生的小数也按此分档。</li>' +
-      '<li><b>高级减产</b>：低阶资源每缺 1 项，高级产出 -25%；缺 2 项 -50%，缺 3 项 -75%，四项全缺停产。部分减产仍按原高级投入计算，停产时才暂停额外投入。</li>' +
-      '<li><b>回合压力</b>：T1–6 为 0，T7 起线性增加到 T30 的 −5；不管基础满意度正负都扣，后期越来越难拿声望。</li>' +
-      '<li><b>每回合</b> 1 次建造或城镇升级；所有建筑最多占 1 人口，市场/仓库等部分蓝图 0 人口；人口既提供劳力也产生需求。</li>' +
-      '<li><b>净产出</b>：1 劳力会占用 1 人，其八项需求合计 ' + fmtRate(G.runModifiers().occupancyCost) + '（含本局难度与 BUFF），作为该建筑的负向产出；额外消耗也从产出中扣除。农场满产净 ' + fmtNet(G.buildingNet(G.buildingDef('farm'))) + '，风电站满产净 ' + fmtNet(G.buildingNet(G.buildingDef('wind'))) + '，建造卡会直接标出。净产出用于横向比较，实际供需不会重复扣一次。</li>' +
-      '<li><b>城镇升级</b>：当前人口达到 P6 / P9 / P12 / P15 时，可手动升级城镇；升级消耗本回合建造行动，不花金钱、不占建筑位、不降级。每次升级从 5 张蓝图中选 2 张。</li>' +
-      '<li><b>建造预览</b>：点击建筑卡先预览；确认后才扣钱/占劳力。预览列出资源变化、满意度与具体高级减产原因。</li>' +
-      '<li><b>任务</b> 开局 5 张，T' + G.REFRESH.join('/T') + ' 各刷新 3 张；接取前供给须大于其他任务占用，0 产出不能接。任务卡会提前显示「接取后预计完成回合」；占用行的“余 X / 缺 X”计入城市需求：接取后供给 − 人口及建筑消耗 − 接取后全部任务占用，仓库减免和高级减产同时生效。城市出现缺口仍可接取，需权衡满意度。完成后二选一：金钱+人口，或金钱+资源供给，选择前不能继续；选择弹窗可隐藏查看资源。</li>' +
-      '<li><b>蓝图</b> 开局通常 3 选 1，蓝图筹备改为 5 选 2；之后城镇升级每次 5 选 2。局外累计声望可扩展随机池并解锁每局 1／2 次刷新；本局蓝图仍需抽取，建造仍花钱/劳力。选择弹窗可隐藏查看资源。</li>' +
-      '</ul></div>';
+    return '<div class="opening-tip">✦ 蓝图解锁建筑类型，建造仍需金钱与劳力。先补基础供给，再发展民生。</div>';
   }
 
   function helpHtml() {
-    return '<div class="rules">' +
-      '<div class="end-kicker">30 回合 · 建设目标决定通关 · 声望记录经营成绩</div>' +
-      '<h2>规则速览</h2>' +
-      '<p><b>本局配置</b>：' + configLabel(G.getState().runConfig) + '。普通采用标准规则，困难启用当前关卡的专属规则，可另选任意数量的不同词缀；每项效果在开局固定。BUFF 可多选，总消耗不超过额度；初始人口增加也会增加需求，蓝图筹备将开局改为 5 选 2。配置与成长在开局时固定，之后解锁不追补当前局。成绩按关卡、困难规则版本、词缀、BUFF 组合及有效成长功能分别记录。</p>' +
-      '<p><b>局外成长</b>：完成 T30 后，本局声望 100% 计入累计，再加通关奖励和首通奖励；困难通关奖励为普通的 2 倍；词缀奖励在此基础上按标示百分比相加后向下取整，不放大本局声望与首通奖励。未通关仍累计本局声望，中途重开不结算。首通按关卡和难度各领取一次，更换 BUFF 或词缀不重复领取。达到门槛自动解锁 BUFF、携带额度、新关卡、蓝图刷新和新蓝图，不扣除声望。累计 ' + chapterThresholds().join('／') + ' 各解锁三关；蓝图刷新按成长每局共 1／2 次，开局和升级抽取共用，不消耗建造行动；新蓝图先加入随机池，仍需抽取再建造。</p>' +
-      '<p><b>BUFF 方案</b>：开局配置中可命名并保存 3 套 BUFF，跨关卡载入，保留当前难度与词缀；只在本浏览器保存。超过额度或含未解锁 BUFF 的方案不可载入。关卡建议提供一种当前可用搭配，可自由调整；点击“开始本局”后才替换城市。</p>' +
-      '<p><b>建设目标</b>：开局选择关卡，要求固定且全程可见。多项资源分别验收，富余资源不能抵消另一项的缺口。</p><ul>' +
-      G.SCENARIOS.map(function (s, index) { return '<li><b>第 ' + (index + 1) + ' 关 · ' + s.name + '</b>：' +
-        s.requirements.map(function (r) { return r.label + ' ≥' + r.target; }).join('、') + '。</li>'; }).join('') + '</ul>' +
-      '<p><b>通关验收</b>：T30 先处理全部奖励，并完成建设、启停建筑与任务操作，再点击“验收本关”。按此时实际供需判断，全部条件符合才通关。提前达标仍需保持到终局；未通关也记录声望，只有通关才写入本机关卡通关记录。旧存档作为自由经营保留。</p>' +
-      '<p><b>满意度</b>：八项资源各 0–15 分，减去人口惩罚、赤字 ' + G.DEFICIT + ' 和回合压力。&lt;0 掉人口；0≤满意度&lt;20 不加声望；20≤满意度&lt;35 每回合 +1，35≤满意度&lt;50 +2，50≤满意度&lt;65 +3，65≤满意度&lt;75 +4，≥75 +5。</p>' +
-      '<p><b>人口惩罚</b>：分段累加，1–5 人每人扣 1，6–15 人每人扣 0.5，16–25 人每人扣 1，26 人起每人扣 1.5。例如 P5 扣 5、P11 扣 8、P15 扣 10、P20 扣 15、P25 扣 20。</p>' +
-      '<p><b>声望人口上限</b>：P&lt;12 每回合最多 +3，P12–14 最多 +4，P≥15 最多 +5。按结算时当前人口计算，人口下降会降低上限，城镇等级不能保留上限。任务的固定声望奖励不受影响；选择人口奖励会改变后续上限，不补发本回合已结算的声望。</p>' +
-      '<p><b>超额减速</b>：任务所用资源的超额合计为 0 时正常推进；大于 0 且小于 2 时为 0.8 速，达到 2 且小于 3 时为 0.6 速，达到 3 时为 0.5 速。小数按所在区间处理，超额越多不会反而加速。</p>' +
-      '<p><b>回合压力</b>：T1–6 为 0，T7 起线性增加，T30 为 −5；无论基础满意度正负都扣。后期想拿声望，需要比前期更高的基础供给。</p>' +
-      '<p><b>资源条</b>：彩条不再表示满意度，总长度 = 需求 + 占用；金色为任务占用，青色/蓝色为已覆盖需求，红色斜纹为供给缺口。文字显示满足分，悬停可看供给、占用、需求与缺口。</p>' +
-      '<p><b>资源余量</b>：资源卡大字“额外供给 / 缺口”= 提供 − 占用 − 需求；正数为满足需求后的额外供给，负数为仍缺的量（按缺口绝对值显示）。</p>' +
-      '<p><b>资源</b>：卡面显示「当前 → 下回合预测」。下回合预测包含已建建筑、任务占用和下一回合会完成的任务；建造后立即变化。</p>' +
-      '<p><b>高级减产</b>：高级建筑（衣服 / 家具 / 药品 / 教育）需要基础资源。食物、原料、电力、水每缺 1 项，高级产出 -25%；缺 2 项 -50%，缺 3 项 -75%，四项全缺停产。部分减产仍按原高级投入计算，停产时才暂停额外基础消耗；资源卡会标「低阶不足·产出 N%」。</p>' +
-      '<p><b>劳力</b>：所有建筑最多占 1 人口；市场、仓库等部分蓝图 0 人口。启用建筑会占用人口，可工作人口 = 总人口 − 闲人（最低为 0）；闲人仍消耗资源并计入通关、城镇升级和声望人口档位。已占用超过可工作人口时不能进入下回合。城市面板按类型用 − / + 调整启用数量，停用会同时停掉供给和额外消耗。</p>' +
-      '<p><b>净产出</b>：把占用人口视为负向产出。本局 1 人八项需求合计 ' + fmtRate(G.runModifiers().occupancyCost) + '；满产净产出 = 产出总和 − 额外消耗总和 − 劳力 × ' + fmtRate(G.runModifiers().occupancyCost) + '。农场 ' + fmtNet(G.buildingNet(G.buildingDef('farm'))) + '，风电站 ' + fmtNet(G.buildingNet(G.buildingDef('wind'))) + '；建筑资源产出先应用词缀，再受低阶短缺减产；建筑投入不会随产出词缀减少。</p>' +
-      '<p><b>建造预览</b>：点击建筑卡先打开预览，确认后才真正建造。预览显示金钱/劳力/满意度变化、资源供需变化，以及高级建筑当前和建造后的具体减产原因（哪项低阶资源、可用/需求/缺口）。</p>' +
-      '<p><b>城镇升级</b>：当前人口达到 P6 / P9 / P12 / P15 时可手动升级；每级消耗本回合建造行动，不花金钱、不占建筑位、不降级。每次升级弹出 5 选 2 蓝图。声望不再给蓝图。</p>' +
-      '<p><b>任务</b>：开局 5 张，T' + G.REFRESH.join('/T') + ' 各刷新 3 张。任务栏不限张数；限时任务过期消失；恶性任务不接也占出生负担 A。接取前看「接取后预计满意度」、变化量和「接取后预计完成回合」；占用行的“余 X / 缺 X”= 接取后供给 − 城市需求（人口及建筑消耗）− 接取后全部任务占用。仓库减免、高级减产和恶性 A→B 替换均计入；进行中显示当前余额，自身占用只算一次。完成回合已经计入同资源超额减速，预计超过 T30 会提前标红。接取条件仍为当前供给 &gt; 其他任务占用，0 产出不能接；城市余额为负时仍可接取。完成后在「金钱+人口」和「金钱+资源供给」中二选一，选择前不能继续。</p>' +
-      '<p><b>选择弹窗</b>：任务奖励和蓝图选择弹窗都可以点“隐藏窗口，查看资源与人口”，右下角“返回选择”恢复；隐藏期间不会丢失奖励或蓝图选择状态。</p>' +
-      '<p><b>终局</b>：第 30 回合关卡按钮变为「验收本关」；自由经营为「结算本局」。接取前若预计完成回合超过 T' + G.MAX_TURNS + '，任务卡会标红提醒。</p>' +
-      '<button class="btn primary" data-close-help="1" type="button">知道了</button>' +
-      '</div>';
+    var sections = [
+      ['资源与满意度', '余量 = 供给 − 城市需求 − 全部任务占用，红色表示缺口。八项满足分各 0–15，相加后减人口惩罚、赤字 ' + G.DEFICIT + '、回合压力及词缀惩罚，再加市场加成。满意度低于 0 会掉人口；达到 20 / 35 / 50 / 65 / 75，每回合声望 +1 / +2 / +3 / +4 / +5。基础资源每缺一项，高级产出降低 25%，四项全缺停产。'],
+      ['人口、劳力与建设', '人口提供劳力，也消耗全部资源；闲人只减少可工作人口。城市用 − / + 调整建筑启停，劳力超额时需先停用建筑。每回合只能建造或升级一次。达到人口 6 / 9 / 12 / 15 时可免费升级城镇，获得 5 选 2 蓝图；建筑最多 ' + G.CAP + ' 座（词缀可降低上限）。'],
+      ['任务与奖励', '接取前看资源余额、预计满意度和完成时间。余额包含城市需求与全部任务占用，仓库减免和高级减产已计入。限时任务有接取期限；恶性任务未接时也占资源，接取后改为任务占用。任务超额占用会减速：超额 (0,2) 为 0.8 速，[2,3) 为 0.6 速，≥3 为 0.5 速。完成后选择人口或永久供给，两者均有金钱与声望。开局 5 张任务，T' + G.REFRESH.join(' / ') + ' 各刷新 3 张。'],
+      ['声望与人口档位', '人口惩罚分段累加：1–5 人每人 −1，6–15 人 −0.5，16–25 人 −1，26 人起 −1.5。每回合声望上限：人口 <12 为 +3，12–14 为 +4，≥15 为 +5；任务奖励不受上限限制。T1–6 无回合压力，之后逐渐增加至 T30 的 −5。'],
+      ['通关与局外成长', '第 30 回合处理完全部奖励与建设操作，再点击「验收本关」。所有目标同时达标才通关，某种资源富余不能抵消另一种缺口。本局声望 100% 累计，失败也保留，中途重开不结算。通关和首通另加奖励；首通按关卡 × 难度各一次。累计声望自动解锁新内容，不花费声望，下一局生效。'],
+      ['困难、BUFF 与蓝图', '每关困难规则不同，可追加任意数量的不同词缀；词缀奖金百分比相加，以困难通关奖励为基数，不放大本局声望与首通。BUFF 可多选但总消耗不能超过额度。成长蓝图只加入随机池，仍需局内抽取；刷新次数开局与升级抽取共用。BUFF 方案保存组合，载入时保留难度与词缀。'],
+      ['计算与存档', '点击「详细数据」查看资源明细，建筑预览查看投入与产出变化。满产净产出用于建筑横向比较：产出 − 额外消耗 − 劳力对应的人口需求，不重复扣实际供需。城市、成绩、成长与方案只保存在当前浏览器；返回主界面或刷新会保留城市。选择新关卡直到确认开局才替换存档。']
+    ];
+    return '<div class="modal-head"><h2>市长手册</h2><p>先做一轮，再按需要查阅。</p></div><div class="help-quick"><div><b>01 建造</b><span>补供给，看余量</span></div><div><b>02 做任务</b><span>看预测，选奖励</span></div><div><b>03 达成目标</b><span>保持到第 30 回合</span></div></div>' +
+      '<button class="btn primary" data-start-tutorial type="button">' + (mainGame.getState() ? '进入独立练习（保留当前城市）' : '开始新手教程') + '</button>' +
+      '<div class="help-sections">' + sections.map(function (r) { return '<details class="plain-details"><summary>' + r[0] + '</summary><p>' + resDescription(r[1]) + '</p></details>'; }).join('') + '</div>' +
+      '<div class="modal-actions"><button class="btn ghost" data-close-help type="button">返回</button></div>';
   }
 
   function advReasonLine(r) {
@@ -899,7 +983,7 @@
       var d0 = b.demand[r.key] || 0;
       var d1 = a.demand[r.key] || 0;
       if (Math.abs(s1 - s0) < 0.0001 && Math.abs(d1 - d0) < 0.0001) return '';
-      return '<div class="bp-row"><span class="bp-name">' + r.name + '</span>' +
+      return '<div class="bp-row"><span class="bp-name">' + resName(r.key) + '</span>' +
         '<span>供给 ' + s0 + ' → <b>' + s1 + '</b></span>' +
         '<span>需求 ' + d0 + ' → <b>' + d1 + '</b></span></div>';
     }).join('');
@@ -910,7 +994,7 @@
     var net = G.buildingNet(d);
     var netTxt = net === null ? '' :
       '<div class="bp-net">满产净产出 <b>' + fmtNet(net) + '</b> / 回合' +
-      '<span>已扣除额外消耗与 1 人占用 ' + fmtRate(G.runModifiers().occupancyCost) + ' 点（' + G.RES.map(function (r) { return r.name + ' ' + fmtRate(G.runModifiers().populationDemand[r.key]); }).join('、') + '）；已计入本局难度与 BUFF，实际供需不会重复扣一次。</span></div>';
+      '<span>已扣除额外消耗与 ' + d.labor + ' 人占用 ' + fmtRate(d.labor * G.runModifiers().occupancyCost) + ' 点（' + G.RES.map(function (r) { return resName(r.key) + ' ' + fmtRate(G.runModifiers().populationDemand[r.key]); }).join('、') + '）；已计入本局难度与 BUFF，实际供需不会重复扣一次。</span></div>';
     var afterGoal = G.goalStatus(a);
     return '<div class="modal-head"><h2>建造预览 · ' + d.icon + ' ' + d.name + '</h2>' +
       '<p>确认后立即建造，本回合不能再建。花费 ' + G.buildingCost(d) + ' 金 · 劳力 ' + d.labor + ' · 建成后不可撤销。</p></div>' +
@@ -920,13 +1004,13 @@
       '<span>劳力 <b>' + p.laborBefore + ' → ' + p.laborAfter + ' / ' + G.laborCapacity() + '</b></span>' +
       '<span>满意度 <b>' + fmt1(b.sat) + ' → ' + fmt1(a.sat) + '</b></span>' +
       '</div>' +
-      netTxt +
       '<div class="bp-compare"><div class="bp-subhead">资源变化</div>' +
       (rows || '<p class="bp-none">建造后供需无明显变化。</p>') + '</div>' +
       nextTxt +
-      (afterGoal ? '<div class="bp-subhead">建造后建设目标 · ' + esc(afterGoal.name) + '</div>' +
-        '<div class="goal-conditions">' + afterGoal.conditions.map(goalConditionHtml).join('') + '</div>' : '') +
-      advReasonBlock(b, a) +
+      (a.advancedShort ? '<p class="bp-warn">基础资源不足，高级产出为 ' + a.advancedOutputPct + '%</p>' : '') +
+      '<details class="plain-details"><summary>更多计算与目标变化</summary>' + netTxt +
+        (afterGoal ? '<div class="bp-subhead">建造后建设目标 · ' + esc(afterGoal.name) + '</div><div class="goal-conditions">' + afterGoal.conditions.map(goalConditionHtml).join('') + '</div>' : '') +
+        advReasonBlock(b, a) + '</details>' +
       '<div class="modal-actions">' +
       '<button class="btn ghost" data-close-build="1" type="button">取消</button>' +
       '<button class="btn primary" data-confirm-build="' + d.id + '" type="button">确认建造</button>' +
@@ -945,6 +1029,11 @@
       return;
     }
     $('btnShowModal').classList.add('hidden');
+    if (tutorial && tutorial.step().id === 'welcome') {
+      card.innerHTML = '<div class="tutorial-callout">' + tutorialHtml() + '</div><div class="goal-conditions">' + G.goalStatus().conditions.map(goalConditionHtml).join('') + '</div><p class="goal-note">练习随时可退出；正式城市、成长与成绩不受影响。刷新页面将结束练习并回到主界面。</p>';
+      modal.classList.remove('hidden');
+      return;
+    }
     if (showHelp) {
       card.innerHTML = helpHtml();
       modal.classList.remove('hidden');
@@ -972,31 +1061,24 @@
       var title = d.source === 'town'
         ? '城镇升级 Lv.' + d.level + ' · 5 选 2'
         : (G.goalStatus() ? G.goalStatus().name + ' · 开局蓝图' : '开局蓝图 · 先看目标');
-      var intro = d.source === 'town'
-        ? '本次城镇升级已消耗本回合建造行动。'
-        : '蓝图只是建筑类型，建造时仍要花金钱和劳力。';
-      intro = '从 ' + d.options.length + ' 张中选 ' + pickCount + ' 张解锁。' + intro + '选完才能继续。';
+      var intro = '从 ' + d.options.length + ' 张中选 ' + pickCount + ' 张。' + (d.source === 'town' ? '本回合建设行动已使用。' : '');
       var html = '<div class="modal-head"><h2>' + title + '</h2>' +
         '<p>' + intro + '</p></div>';
-      if (d.opening) {
+      if (d.opening && !tutorial) {
         var openingGoal = G.goalStatus();
-        if (openingGoal) html += '<div class="goal-conditions opening-goals">' + openingGoal.conditions.map(goalConditionHtml).join('') + '</div>';
+        if (openingGoal) html += '<div class="requirement-chips opening-goals">' + requirementChips(openingGoal.conditions) + '</div>';
         html += introHtml();
       }
       html += '<div class="pick-grid' + (d.options.length > 3 ? ' five' : '') + '">';
       html += d.options.map(function (id) {
         var b = G.buildingDef(id);
         var extra = extraText(b);
-        var note = bpNote(id);
         var selected = drawPick.indexOf(id) >= 0;
         var btnLabel = pickCount > 1 ? (selected ? '已选' : '选择') : '选择';
-        var net = G.buildingNet(b);
         return '<button class="pick-card' + (selected ? ' selected' : '') + '" data-pick="' + id + '" type="button">' +
           '<span class="pick-icon">' + b.icon + '</span>' +
           '<h3>' + b.name + '</h3>' +
           '<p>' + outText(b) + (extra ? '<br><span class="muted">耗 ' + extra + '</span>' : '') + '</p>' +
-          (net === null ? '' : '<span class="pick-net">满产净 ' + fmtNet(net) + '</span>') +
-          (note ? '<p class="pick-note">' + note + '</p>' : '') +
           '<span class="pick-req">劳力 ' + b.labor + ' · 上限 ' + b.max + '</span>' +
           '<span class="pick-cost">' + G.buildingCost(b) + ' 金</span>' +
           '<span class="pick-btn">' + btnLabel + '</span>' +
@@ -1009,9 +1091,11 @@
           (drawPick.length === pickCount ? '' : ' disabled') + '>确认选择</button></div>';
       }
       var reroll = G.blueprintRerollStatus();
-      html += '<div class="draw-reroll"><button class="btn ghost" data-reroll-blueprints="1" type="button"' + (reroll.ok ? '' : ' disabled') + '>刷新蓝图 · 剩余 ' + reroll.remaining + ' 次</button>' +
-        '<small>' + (reroll.ok ? '刷新整批并清空勾选，优先出现新牌；每局次数共用。' : reroll.reason) + '</small></div>';
-      html += '<div class="modal-actions modal-view-actions"><button class="btn ghost" data-hide-modal="1" type="button">隐藏窗口，查看资源与人口</button></div>';
+      if (!tutorial) {
+        html += '<div class="draw-reroll"><button class="btn ghost" data-reroll-blueprints="1" type="button"' + (reroll.ok ? '' : ' disabled') + '>刷新蓝图 · 剩余 ' + reroll.remaining + ' 次</button>' +
+          '<small>' + (reroll.ok ? '开局与升级共用次数' : reroll.reason) + '</small></div>';
+        html += '<div class="modal-actions modal-view-actions"><button class="btn ghost" data-hide-modal="1" type="button">查看城市</button></div>';
+      }
       card.innerHTML = html;
       modal.classList.remove('hidden');
       return;
@@ -1021,12 +1105,14 @@
       var isBest = f.rep >= best;
       card.innerHTML = '<div class="end">' +
         '<div class="end-kicker">' + (f.goal ? esc(f.goal.name) + ' · 建设验收' : '自由经营 · 30 回合结束') + '</div>' +
-        '<div class="end-config">' + configLabel(f.runConfig) + '</div>' +
+        '<details class="plain-details end-config"><summary>本局配置</summary><p>' + configLabel(f.runConfig) + '</p></details>' +
         (f.goal ? '<h2 class="end-result' + (f.cleared ? ' cleared' : '') + '">' + (f.cleared ? '建设达标 · 通关' : '建设目标未完成 · 未通关') + '</h2>' : '') +
         '<div class="end-rep">' + f.rep + '<small>声望</small></div>' +
         '<div class="end-sub">经营成绩' + (isBest ? ' · 全部配置最高声望' : '') + '</div>' +
-        (f.goal ? '<div class="goal-conditions end-goals">' + f.goal.conditions.map(goalConditionHtml).join('') + '</div>' : '') + failureAdviceHtml(f) +
-        '<div class="end-grid">' +
+        growthSettlementHtml(S) +
+        (f.goal ? '<div class="goal-conditions end-goals">' + f.goal.conditions.map(goalConditionHtml).join('') + '</div>' : '') +
+        (f.goal && !f.cleared ? '<details class="plain-details"><summary>下次如何改进？</summary>' + failureAdviceHtml(f) + '</details>' : '') +
+        '<details class="plain-details"><summary>经营成绩与记录</summary><div class="end-grid">' +
         '<div class="end-stat"><b>Lv.' + (f.level || 0) + '</b><span>城镇</span></div>' +
         '<div class="end-stat"><b>' + f.pop + '</b><span>人口</span></div>' +
         '<div class="end-stat"><b>' + f.buildings + '</b><span>建筑</span></div>' +
@@ -1035,9 +1121,8 @@
         '</div>' +
         (S.scenarioId ? '<div class="end-best">此配置最佳通关声望：' +
           (loadCampaign()[P.key(S.scenarioId, S.runConfig, S.growthRep, S.legacyUnlockRep, S.rerollsGranted)] ? fmt(loadCampaign()[P.key(S.scenarioId, S.runConfig, S.growthRep, S.legacyUnlockRep, S.rerollsGranted)].bestRep) : '尚未通关') + '</div>' : '') +
-        '<div class="end-best">本机最高声望（全部配置）：' + best + ' · 种子 ' + S.seed + '</div>' +
-        growthSettlementHtml(S) + growthSummaryHtml() +
-        '<button class="btn primary big" data-restart="1" type="button">返回选关</button>' +
+        '<div class="end-best">本机最高声望（全部配置）：' + best + ' · 种子 ' + S.seed + '</div></details>' +
+        '<div class="modal-actions"><button class="btn ghost" data-open-growth type="button">查看成长</button><button class="btn primary big" data-restart="1" type="button">返回主界面</button></div>' +
         '</div>';
       modal.classList.remove('hidden');
       return;
@@ -1047,6 +1132,7 @@
   }
 
   function nextTurn() {
+    if (!tutorialAllows('next')) return;
     var r = G.endTurn();
     if (!r.ok) toast(r.error);
     render();
@@ -1059,6 +1145,7 @@
   }
 
   function openBuildPreview(id) {
+    if (!tutorialAllows('build', id)) return;
     var st = G.buildStatus(id);
     if (!st.ok) {
       toast(st.reason);
@@ -1074,11 +1161,13 @@
   }
 
   function confirmBuild(id) {
+    if (!tutorialAllows('build', id)) return;
     buildPreviewId = null;
     build(id);
   }
 
   function setCount(defId, delta) {
+    if (tutorial) return;
     var S = G.getState();
     var list = S.buildings.filter(function (b) { return b.defId === defId; });
     var active = list.filter(function (b) { return b.active; }).length;
@@ -1088,18 +1177,21 @@
   }
 
   function accept(uid) {
+    if (!tutorialAllows('accept', uid)) return;
     var r = G.acceptTask(uid);
     if (!r.ok) toast(r.error);
     render();
   }
 
   function abandon(uid) {
+    if (tutorial) return;
     var r = G.abandonTask(uid);
     if (!r.ok) toast(r.error);
     render();
   }
 
   function chooseTaskReward(choice) {
+    if (!tutorialAllows('reward', choice)) return;
     var r = G.chooseReward(choice);
     if (!r.ok) toast(r.error);
     else {
@@ -1114,6 +1206,7 @@
   }
 
   function pick(id) {
+    if (!tutorialAllows('pick', id)) return;
     var S = G.getState();
     if (!S || !S.pendingDraw) return;
     modalHidden = false;
@@ -1135,6 +1228,7 @@
   }
 
   function confirmDraw() {
+    if (!tutorialAllows('pick')) return;
     var S = G.getState();
     if (!S || !S.pendingDraw) return;
     modalHidden = false;
@@ -1149,6 +1243,7 @@
   }
 
   function upgradeTown() {
+    if (!tutorialAllows('upgrade')) return;
     var r = G.upgradeTown();
     if (!r.ok) toast(r.error);
     drawPick = [];
@@ -1157,12 +1252,15 @@
   }
 
   function newGame(seed, scenarioId, config) {
+    if (tutorial) return;
     var growth = currentGrowth(), status = G.runConfigStatus(config, growth.totalRep, growth.legacyUnlockRep);
     if (!status.ok) { toast(status.error); return; }
     if (growth.scenarioIds.indexOf(scenarioId) < 0) { toast('此关卡尚未解锁'); return; }
-    selectingScenario = false;
     configuringScenario = null;
     growthOpen = false;
+    homeVisible = false;
+    replacingCity = false;
+    setCityTab('resources');
     pendingSeed = undefined;
     showHelp = false;
     buildPreviewId = null;
@@ -1182,9 +1280,14 @@
   }
 
   function openScenarioSelection(seed) {
+    if (tutorial) return;
     growthOpen = false;
-    selectingScenario = true;
+    homeVisible = true;
+    homeTab = 'scenarios';
     configuringScenario = null;
+    replacingCity = false;
+    showHelp = false;
+    buildPreviewId = null;
     pendingSeed = seed;
     modalHidden = false;
     render();
@@ -1194,8 +1297,9 @@
   function openRunSetup(id, config) {
     if (currentGrowth().scenarioIds.indexOf(id) < 0) { openScenarioSelection(pendingSeed); toast('累计声望达标后解锁此关'); return; }
     growthOpen = false;
+    homeVisible = true;
+    replacingCity = false;
     configuringScenario = id;
-    selectingScenario = false;
     pendingRunConfig = G.normalizeRunConfig(config);
     render();
     $('modalCard').scrollTop = 0;
@@ -1209,6 +1313,53 @@
     // Migrate historical clears before rendering can record this run's first victory.
     loadGrowth();
     loadSavedLoadouts();
+    try {
+      var prefs = JSON.parse(localStorage.getItem(UI_KEY) || '{}');
+      if (prefs && (prefs.tutorial === 'done' || prefs.tutorial === 'skipped')) uiPrefs.tutorial = prefs.tutorial;
+    } catch (e) {}
+    setCityTab('resources');
+    $('btnResourceDetail').addEventListener('click', function () { resourceDetails = !resourceDetails; render(); });
+    $('cityNav').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-city-tab]');
+      if (b) setCityTab(b.dataset.cityTab);
+    });
+    document.addEventListener('click', function (e) {
+      var target = e.target;
+      if (target.closest('[data-guide-next]')) { tutorial.acknowledge(); render(); return; }
+      if (target.closest('[data-guide-exit]')) { endTutorial(false); return; }
+      if (target.closest('[data-guide-finish]')) { endTutorial(true); return; }
+      if (target.closest('[data-start-tutorial]')) { startTutorial(); return; }
+      if (target.closest('[data-dismiss-tutorial]')) { uiPrefs.tutorial = 'skipped'; saveUiPrefs(); render(); return; }
+      if (target.closest('[data-home-help]')) { showHelp = true; render(); return; }
+      if (target.closest('[data-resume-city]')) {
+        homeVisible = false; configuringScenario = null; growthOpen = false; showHelp = false; modalHidden = false;
+        render(); return;
+      }
+      var tab = target.closest('[data-home-tab]');
+      if (tab) { homeTab = tab.dataset.homeTab; render(); $('homeScreen').querySelector('[data-home-tab="' + homeTab + '"]').focus({ preventScroll: true }); return; }
+      var bp = target.closest('[data-bp-filter]');
+      if (bp) { blueprintFilter = bp.dataset.bpFilter; render(); $('homeScreen').querySelector('[data-bp-filter="' + blueprintFilter + '"]').focus({ preventScroll: true }); return; }
+      var scenario = target.closest('#homeScreen [data-scenario]');
+      if (scenario) { openRunSetup(scenario.dataset.scenario); return; }
+    });
+    document.addEventListener('keydown', function (e) {
+      if ($('modal').classList.contains('hidden')) return;
+      if (e.key === 'Escape' && !tutorial) {
+        if (buildPreviewId) closeBuildPreview();
+        else if (showHelp) { showHelp = false; render(); }
+        else if (growthOpen) { growthOpen = false; render(); }
+        else if (configuringScenario) { if (replacingCity) { replacingCity = false; render(); } else openScenarioSelection(pendingSeed); }
+        else if (G.getState() && !G.getState().over) { modalHidden = true; render(); }
+        e.preventDefault();
+      }
+      if (e.key === 'Tab') {
+        var nodes = Array.from($('modalCard').querySelectorAll('button:not(:disabled), input:not(:disabled), summary, a[href], [tabindex="0"]')).filter(function (n) { return n.getClientRects().length; });
+        if (!nodes.length) { e.preventDefault(); return; }
+        var first = nodes[0], last = nodes[nodes.length - 1];
+        if (e.shiftKey && (document.activeElement === first || document.activeElement === $('modalCard'))) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && (document.activeElement === last || document.activeElement === $('modalCard'))) { e.preventDefault(); first.focus(); }
+      }
+    });
     $('btnGrowth').addEventListener('click', function () { growthOpen = true; render(); $('modalCard').scrollTop = 0; });
     $('btnNext').addEventListener('click', nextTurn);
     $('btnRestart').addEventListener('click', function () { restart(false); });
@@ -1305,12 +1456,18 @@
         $('modalCard').querySelector('[data-config-field="' + field + '"][data-config-value="' + value + '"]').focus();
         return;
       }
-      if (e.target.closest('[data-start-configured]')) { newGame(pendingSeed, configuringScenario, pendingRunConfig); return; }
+      if (e.target.closest('[data-back-setup]')) { replacingCity = false; render(); return; }
+      if (e.target.closest('[data-confirm-new]')) { newGame(pendingSeed, configuringScenario, pendingRunConfig); return; }
+      if (e.target.closest('[data-start-configured]')) {
+        if (mainGame.getState() && !mainGame.getState().over) { replacingCity = true; render(); $('modalCard').scrollTop = 0; }
+        else newGame(pendingSeed, configuringScenario, pendingRunConfig);
+        return;
+      }
       if (e.target.closest('[data-back-scenarios]')) { openScenarioSelection(pendingSeed); return; }
       var cancelScenario = e.target.closest('[data-cancel-scenario]');
-      if (cancelScenario) { selectingScenario = false; configuringScenario = null; pendingSeed = undefined; render(); return; }
+      if (cancelScenario) { configuringScenario = null; pendingSeed = undefined; render(); return; }
       var hideView = e.target.closest('[data-hide-modal]');
-      if (hideView) { modalHidden = true; render(); return; }
+      if (hideView && !tutorial) { modalHidden = true; render(); return; }
       var helpClose = e.target.closest('[data-close-help]');
       if (helpClose) { showHelp = false; render(); return; }
       var buildClose = e.target.closest('[data-close-build]');
@@ -1340,18 +1497,10 @@
       requestedConfig = G.normalizeRunConfig({ difficultyId: params.get('difficulty') || 'normal', buffIds: requestedBuffs === 'none' ? [] : requestedBuffs.split(','), affixIds: params.get('affixes') ? params.get('affixes').split(',') : [] });
     } catch (e) {}
 
-    if (seed === null && scenarioId === null) {
-      var saved = loadSave();
-      if (saved) {
-        var imported = G.importState(saved);
-        if (imported.ok) {
-          render();
-          var S = G.getState();
-          toast(S.over ? '已恢复上次结算 · 声望 ' + S.rep : '已恢复上次进度 · T' + S.turn);
-          return;
-        }
-        clearSave();
-      }
+    var saved = loadSave();
+    if (saved) {
+      var imported = mainGame.importState(saved);
+      if (!imported.ok) { clearSave(); toast('上次城市存档无法读取，成长与成绩已保留'); }
     }
     if (scenarioId) { pendingSeed = seed; openRunSetup(scenarioId, requestedConfig); }
     else openScenarioSelection(seed);

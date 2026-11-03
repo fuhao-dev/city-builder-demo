@@ -1,4 +1,4 @@
-# 城建设计局 · 多样困难 v3.15.1 Demo
+# 城镇建设局 · 城市大厅 v3.16.1 Demo
 
 在线试玩：https://fuhao-dev.github.io/city-builder-demo/
 
@@ -10,7 +10,9 @@
 
 游戏图标用于页头、浏览器标签和手机主屏幕。原图、512/192/180/32 像素 PNG、ICO 及生成说明见 [assets/icons/README.md](assets/icons/README.md)。
 
-- **自动存档**：每次操作后写入 `localStorage`（键名 `dsh_city_save_v34`）；刷新页面会自动恢复上次进度，不需要手动保存。
+游戏名称为「城镇建设局」。城市大厅与局内页头使用同配色的像素名称 LOGO；透明 PNG 与生成提示词见 [assets/brand/README.md](assets/brand/README.md)。
+
+- **自动存档**：正式城市每次操作后写入 `localStorage`（键名 `dsh_city_save_v34`）；刷新先回到主界面，点击「继续城市」恢复上次进度，不需要手动保存。
 - URL 加 `?seed=123` 打开固定种子的选关；`?seed=123&level=agriculture&difficulty=hard&buff=preparation,water_saving` 可预填 BUFF 组合，增加 `&affixes=idle,rations` 可预填词缀；点击“开始本局”才替换当前存档，仍校验关卡解锁、BUFF 解锁与额度。十二个关卡 ID 见下表。
 - 本机最佳最终声望存在 `localStorage`，键名 `dsh_city_best_rep_v33`；刷新不会丢。
 - 本机通关记录和最佳通关声望按“关卡 × 难度规则版本 × 词缀组合 × BUFF 组合 × 有效成长功能”保存在 `dsh_city_campaign_v2`；组合按 ID 排序，同一组合不会因勾选顺序产生多份成绩。刷新能力和新增蓝图池分别区分成绩；旧困难成绩保留在原规则组，新专属规则使用独立分组；旧 `v1` 成绩只迁入普通＋无加成。
@@ -18,6 +20,12 @@
 - BUFF 方案使用独立键 `dsh_city_loadouts_v1`，保存 3 个可命名槽位，只记录名称和 BUFF 组合，不修改城市、成绩或成长账本。单个损坏槽位恢复为空，其余方案保留；方案仅存于当前浏览器。
 
 ## 开局配置
+
+主界面提供三个入口：「建设关卡」按声望批次展示十二关与普通 / 困难通关状态；「局外成长」查看自动解锁的 BUFF、额度、刷新与关卡；「蓝图图鉴」查看加入随机池的进度，并区分本局已经抽到的蓝图。图鉴参数为标准值，实际局内价格、供需以配置及当前城市为准。
+
+「新手教程」是可退出、可重玩的八步操作练习，采用独立引擎实例，不覆盖正式城市存档、不计入声望和通关记录。练习刷新后直接回到主界面，正式进度保留；仅教程完成 / 跳过状态写入独立键 `dsh_city_ui_v1`。已有城市也可从局内「帮助」进入练习，退出后回到原城市。
+
+局内资源优先显示余量与下回合预测，「详细数据」查看供需和占用，公式在展开说明内。任务占用与奖励、建筑投入产出、关卡目标等均配资源图标及名称。手机用顶部面板导航切换资源、任务、建造和城市；常驻底栏推进回合、返回主界面或查看帮助。
 
 流程为“选择关卡 → 选择难度、词缀与多个 BUFF → 确认开局 → 选择蓝图”。开局前展示已用/总额度、金钱、人口、蓝图数量及资源需求；取消选择可返回原城市。每种 BUFF 最多携带一次，可不选，总消耗不能超过额度。配置与成长在本局开局时固定，之后解锁在下一局生效，刷新恢复不会补发奖励或刷新次数。
 
@@ -212,6 +220,7 @@ node test_unlocks.js
 node test_loadouts.js
 node test_difficulties.js
 node test_affixes.js
+node test_onboarding.js
 node test_balance.js
 node simulate_progression.js --accounts=3 --games=12 --output=progression.json
 node simulate_progression.js --accounts=2 --games=12 --start=81001 --policies=tour,challenge,town --output=progression-heldout.json
@@ -227,7 +236,7 @@ node simulate_scenarios.js --seeds=10 --start=76001 --growth=7500 --buffs=civic_
 
 `--mode=all` 只跑可使用已解锁建筑的常规路线，`--mode=basic` 只跑基础建筑；不传 `--mode` 时两条路线都跑。`--matrix=1` 遍历指定成长阶段全部合法组合，`--growth` 设置测试用累计声望，`--buffs` 指定组合。不指定关卡时仅模拟该成长阶段已解锁的关卡；显式指定未解锁关卡会拒绝。
 
-规则全文见 [DESIGN.md](DESIGN.md)（v3.15.1，§2.4–2.7 为当前成长、配装和困难规则）。
+规则全文见 [DESIGN.md](DESIGN.md)（v3.16.1，§2.4–2.7 为当前成长、配装和困难规则，文末为界面与引导约定）。
 
 ## 还没做
 
