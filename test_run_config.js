@@ -14,7 +14,7 @@ function ready(config,scenario='town') {
   return s;
 }
 eq(G.DIFFICULTIES.map(x=>x.id),['normal','hard'],'two difficulties');
-eq(G.BUFFS.map(x=>x.id),['none','preparation','food_aid','water_saving','settlers','blueprint_pack'],'base and growth buffs');
+eq(G.BUFFS.map(x=>x.id),['none','preparation','food_aid','water_saving','settlers','blueprint_pack','material_aid','power_aid','civic_support'],'base and growth buffs');
 eq(G.normalizeRunConfig(),normal,'standard default');
 eq(G.runModifiers(normal).occupancyCost,6.5,'baseline worker cost');
 eq(G.runModifiers({difficultyId:'hard'}).occupancyCost,7.475,'hard worker cost retains precision');

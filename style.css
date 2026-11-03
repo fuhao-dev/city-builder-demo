@@ -44,7 +44,7 @@ body {
   z-index: 20;
 }
 .hud-brand { display: flex; gap: 12px; align-items: center; min-width: 200px; }
-.logo { font-size: 28px; filter: drop-shadow(0 4px 10px rgba(245, 194, 107, 0.25)); }
+.logo { display: block; width: 40px; height: 40px; flex: 0 0 40px; border-radius: 10px; image-rendering: pixelated; }
 .hud-brand h1 { font-size: 16px; margin: 0; letter-spacing: 1px; }
 .hud-brand p { margin: 3px 0 0; color: var(--muted); font-size: 10px; letter-spacing: 1px; }
 .hud-stats { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; }
@@ -148,6 +148,22 @@ body {
 .growth-item small { flex-shrink: 0; text-align: right; }
 .growth-item.unlocked b, .end-growth { color: var(--teal); }
 .end-growth { font-size: 12px; margin: 14px 0; }
+.setup-rewards, .growth-settlement, .failure-advice { padding: 14px; margin: 14px 0; border: 1px solid var(--line); border-radius: 10px; background: rgba(87,224,192,.04); }
+.setup-rewards b, .setup-rewards span, .setup-rewards small { display: block; line-height: 1.8; }
+.setup-rewards b, .growth-settlement h3, .failure-advice b { font-size: 12px; color: var(--gold); }
+.setup-rewards span, .growth-settlement p { font-size: 12px; }
+.setup-rewards small { font-size: 10px; color: var(--muted); }
+.growth-settlement { text-align: left; }
+.growth-settlement h3 { margin: 0 0 10px; }
+.growth-settlement dl { margin: 0; }
+.growth-settlement dl > div { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; font-size: 12px; }
+.growth-settlement dd { margin: 0; color: var(--teal); font-weight: 700; }
+.growth-settlement .growth-total { border-top: 1px solid var(--line); margin-top: 5px; padding-top: 10px; font-weight: 700; }
+.growth-new { color: var(--teal); font-size: 12px; margin-top: 12px; }
+.growth-new ul, .failure-advice ul { margin: 8px 0 0; padding-left: 18px; line-height: 1.8; }
+.failure-advice { text-align: left; font-size: 11px; }
+.scenario-card.locked { opacity: .55; cursor: not-allowed; }
+.scenario-card.locked .pick-btn { color: var(--muted); }
 .draw-reroll { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 14px 0; }
 .draw-reroll small { font-size: 10px; color: var(--muted); }
 

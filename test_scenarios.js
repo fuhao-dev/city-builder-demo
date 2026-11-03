@@ -6,7 +6,7 @@ const eq = (a,b,label) => { assert.deepEqual(a,b,label); passed++; };
 const ok = (value,label) => { assert(value,label); passed++; };
 const snapshot = () => JSON.stringify(G.exportState());
 function ready(id, pop) {
-  const s = G.newGame(15,id);
+  const s = G.newGame(15,id,{},G.SCENARIOS.find(s=>s.id===id).unlockRep||0);
   G.chooseBlueprint(s.pendingDraw.options[0]);
   s.pop = pop;
   s.turn = 30;
@@ -21,7 +21,7 @@ function fixed(pop,sat,net,key='food') {
   c.supply[key]=30+net;c.demand[key]=25;c.occ[key]=5;
   return c;
 }
-eq(G.SCENARIOS.map(s=>s.id),['town','agriculture','education','industry','health','metropolis'],'six scenarios in chapter order');
+eq(G.SCENARIOS.map(s=>s.id),['town','agriculture','education','industry','health','metropolis','logistics','manufacturing','research','resilience','care','capital'],'twelve scenarios in chapter order');
 eq(G.SCENARIOS[3].requirements.map(r=>r.target),[15,12,12,50],'industry target specification');
 eq(G.SCENARIOS[4].requirements.map(r=>r.target),[12,4,65],'health target specification');
 eq(G.SCENARIOS[5].requirements.map(r=>r.target),[20,65,0,0,0,0],'metropolis target specification');
@@ -70,7 +70,7 @@ eq(G.evaluateScenario('industry',city(15,100,{material:100,power:11.99})).cleare
 eq(G.evaluateScenario('metropolis',city(20,100,{food:-.01,material:100,power:100,water:100})).cleared,false,'high satisfaction cannot bypass the food deficit');
 
 for(const id of G.SCENARIOS.map(s=>s.id)) {
-  const s=ready(id,20);
+  const s=ready(id,Math.max(20,G.SCENARIOS.find(s=>s.id===id).requirements.find(r=>r.key==='pop').target));
   s.rep=123;
   s.sat=-99; // The historical settlement must not determine the live goal result.
   const before=snapshot();
