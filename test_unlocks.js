@@ -43,7 +43,7 @@ for(const difficultyId of ['normal','hard'])for(const buffIds of sets){
   eq(c.supply.material,buffIds.includes('material_aid')?3:1,'material support applied once');
   eq(c.supply.power,buffIds.includes('power_aid')?3:1,'power support applied once');
   for(const r of G.RES){
-    const rate=r.demand*(difficultyId==='hard'?1.15:1)*(r.key==='water'&&buffIds.includes('water_saving')?.9:1)*(r.group==='advanced'&&buffIds.includes('civic_support')?.9:1);
+    const rate=r.demand*(r.key==='water'&&buffIds.includes('water_saving')?.9:1)*(r.group==='advanced'&&buffIds.includes('civic_support')?.9:1);
     eq(c.demand[r.key],Math.round(rate*s.pop*100)/100,'late combination demand '+r.key);
   }
   const before=G.exportState(),forecast=G.forecast();eq(G.exportState(),before,'forecast does not settle growth');

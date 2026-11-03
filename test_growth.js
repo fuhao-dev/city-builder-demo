@@ -36,7 +36,7 @@ for(const rep of [0,1000,4500]){
     const config={difficultyId,buffIds};if(!G.runConfigStatus(config,rep).ok)continue;
     combinations++;
     const s=G.newGame(15,'town',config,rep),pop=5+(buffIds.includes('settlers')?1:0);
-    eq(s.pop,pop,'initial population is additive');eq(s.money,300+(buffIds.includes('preparation')?60:0),'money bonus is applied once');
+    eq(s.pop,pop,'initial population is additive');eq(s.money,300+(buffIds.includes('preparation')?60:0)-(difficultyId==='hard'?80:0),'money bonus is applied once');
     eq(s.townLevel,0,'P6 start still needs manual town upgrade');
     eq(s.pendingDraw.count,buffIds.includes('blueprint_pack')?2:1,'opening choice count');
     eq(s.pendingDraw.options.length,buffIds.includes('blueprint_pack')?5:3,'opening option count');
@@ -44,7 +44,7 @@ for(const rep of [0,1000,4500]){
     ok(G.chooseBlueprints(s.pendingDraw.options.slice(0,s.pendingDraw.count)).ok,'atomic opening choices');
     const c=G.compute();eq(c.supply.food,buffIds.includes('food_aid')?5:3,'persistent supply stacks with other buffs');
     for(const r of G.RES){
-      const rate=r.demand*(difficultyId==='hard'?1.15:1)*(r.key==='water'&&buffIds.includes('water_saving')?.9:1);
+      const rate=r.demand*(r.key==='water'&&buffIds.includes('water_saving')?.9:1);
       eq(c.demand[r.key],round(pop*rate),'population bonus and demand multipliers compose: '+r.key);
     }
     const before=snapshot(),fc=G.forecast();eq(snapshot(),before,'configured forecast never changes the run');

@@ -1,5 +1,5 @@
 /*
- * 城建设计局 · v3.14.0 引擎
+ * 城建设计局 · v3.15.1 引擎
  * 纯逻辑、无 DOM，可在 Node 里直接 require 测试。
  *
  * 核心：30 回合 / 每回合 1 次建造或城镇升级 / 8 资源 / 人口常驻占用劳力 /
@@ -29,7 +29,40 @@
 
   var DIFFICULTIES = [
     { id: 'normal', name: '普通', description: '采用标准人口需求。', populationDemandMultiplier: 1 },
-    { id: 'hard', name: '困难', description: '人口的八项资源需求 ×1.15。', populationDemandMultiplier: 1.15 }
+    { id: 'hard', name: '困难', description: '启用本关专属困难规则，附加词缀不限选择数量，奖励可叠加。' }
+  ];
+  var HARD_RULES_VERSION = 2;
+  var HARD_RULES = {
+    town: { name: '拮据开局', description: '初始金钱 −80。', effects: { startingMoney: -80 } },
+    agriculture: { name: '粮食紧缺', description: '人口食物需求 ×1.5。', effects: { populationDemandMultiplier: { food: 1.5 } } },
+    education: { name: '求学热潮', description: '人口教育需求 ×1.35。', effects: { populationDemandMultiplier: { education: 1.35 } } },
+    industry: { name: '工业负荷', description: '人口原料、电力需求 ×1.4。', effects: { populationDemandMultiplier: { material: 1.4, power: 1.4 } } },
+    health: { name: '医疗压力', description: '人口药品需求 ×1.35、用水需求 ×1.2。', effects: { populationDemandMultiplier: { medicine: 1.35, water: 1.2 } } },
+    metropolis: { name: '基础承压', description: '人口食物、原料、电力、用水需求 ×1.25。', effects: { populationDemandMultiplier: { food: 1.25, material: 1.25, power: 1.25, water: 1.25 } } },
+    logistics: { name: '物资周转', description: '人口食物、原料需求 ×1.3。', effects: { populationDemandMultiplier: { food: 1.3, material: 1.3 } } },
+    manufacturing: { name: '消费升级', description: '人口衣服、家具需求 ×1.25。', effects: { populationDemandMultiplier: { clothes: 1.25, furniture: 1.25 } } },
+    research: { name: '科研负荷', description: '人口教育、电力需求 ×1.25。', effects: { populationDemandMultiplier: { education: 1.25, power: 1.25 } } },
+    resilience: { name: '全面紧缺', description: '人口八项资源需求 ×1.1。', effects: { populationDemandMultiplier: { food: 1.1, material: 1.1, power: 1.1, water: 1.1, clothes: 1.1, furniture: 1.1, medicine: 1.1, education: 1.1 } } },
+    care: { name: '民生期待', description: '人口衣服、家具、药品、教育需求 ×1.1。', effects: { populationDemandMultiplier: { clothes: 1.1, furniture: 1.1, medicine: 1.1, education: 1.1 } } },
+    capital: { name: '建设溢价', description: '所有建筑的建造价格 ×1.2，向上取整。', effects: { buildingCostMultiplier: 1.2 } }
+  };
+  var AFFIXES = [
+    { id: 'idle', name: '闲人', description: '固定 1 人无法工作，仍计入人口和全部需求。', rewardPercent: 20, effects: { idleWorkers: 1 } },
+    { id: 'tight_budget', name: '预算缩减', description: '初始金钱 −25。', rewardPercent: 10, effects: { startingMoney: -25 } },
+    { id: 'dry', name: '干燥气候', description: '人口用水需求 ×1.1。', rewardPercent: 10, effects: { populationDemandMultiplier: { water: 1.1 } } },
+    { id: 'rations', name: '额外口粮', description: '人口食物需求 ×1.1。', rewardPercent: 10, effects: { populationDemandMultiplier: { food: 1.1 } } },
+    { id: 'material_need', name: '原料损耗', description: '人口原料需求 ×1.1。', rewardPercent: 10, effects: { populationDemandMultiplier: { material: 1.1 } } },
+    { id: 'power_need', name: '用电高峰', description: '人口电力需求 ×1.1。', rewardPercent: 10, effects: { populationDemandMultiplier: { power: 1.1 } } },
+    { id: 'clothing_need', name: '衣物磨损', description: '人口衣服需求 ×1.1。', rewardPercent: 10, effects: { populationDemandMultiplier: { clothes: 1.1 } } },
+    { id: 'furniture_need', name: '家具折旧', description: '人口家具需求 ×1.1。', rewardPercent: 10, effects: { populationDemandMultiplier: { furniture: 1.1 } } },
+    { id: 'medicine_need', name: '保健需求', description: '人口药品需求 ×1.1。', rewardPercent: 10, effects: { populationDemandMultiplier: { medicine: 1.1 } } },
+    { id: 'education_need', name: '进修热潮', description: '人口教育需求 ×1.1。', rewardPercent: 10, effects: { populationDemandMultiplier: { education: 1.1 } } },
+    { id: 'costly_building', name: '施工加价', description: '建筑价格 ×1.1，与关卡倍率相乘后向上取整。', rewardPercent: 10, effects: { buildingCostMultiplier: 1.1 } },
+    { id: 'cramped', name: '用地紧张', description: '城市建筑总上限 −2 座（24 →22），停用建筑仍占位置。', rewardPercent: 10, effects: { buildingCap: -2 } },
+    { id: 'heavy_tasks', name: '任务繁重', description: '所有任务占用、恶性任务出生负担 ×1.1，再计仓库减免。', rewardPercent: 15, effects: { taskOccupancyMultiplier: 1.1 } },
+    { id: 'unease', name: '民心不安', description: '满意度固定 −3，照常影响声望与掉人口。', rewardPercent: 10, effects: { satisfactionPenalty: 3 } },
+    { id: 'emigration', name: '居民外迁', description: '初始人口 −1，与人口 BUFF 相加；开局结算照常进行。', rewardPercent: 15, effects: { startingPop: -1 } },
+    { id: 'worn_tools', name: '设备老化', description: '建筑的资源产出 ×0.95；投入不减，基础和任务永久供给不受影响。', rewardPercent: 15, effects: { buildingOutputMultiplier: 0.95 } }
   ];
   var BUFFS = [
     { id: 'none', name: '无加成', description: '清空已选 BUFF。', cost: 0, unlockRep: 0, effects: {} },
@@ -65,7 +98,7 @@
   function normalizeRunConfig(config) {
     var c = config == null ? {} : config;
     if (typeof c !== 'object' || Array.isArray(c) || Object.keys(c).some(function (key) {
-      return key !== 'difficultyId' && key !== 'buffId' && key !== 'buffIds';
+      return key !== 'difficultyId' && key !== 'buffId' && key !== 'buffIds' && key !== 'affixIds' && key !== 'hardRulesVersion';
     })) throw new Error('开局配置无效');
     var difficultyId = c.difficultyId === undefined ? 'normal' : c.difficultyId;
     if (!findDefinition(DIFFICULTIES, difficultyId)) throw new Error('未知难度');
@@ -73,12 +106,30 @@
     var ids = c.buffIds === undefined ? (c.buffId === undefined || c.buffId === 'none' ? [] : [c.buffId]) : c.buffIds;
     if (!Array.isArray(ids)) throw new Error('BUFF 组合格式无效');
     var seen = {};
-    ids.forEach(function (id) {
+    Array.from(ids).forEach(function (id) {
       if (!findDefinition(BUFFS, id) || id === 'none') throw new Error('未知 BUFF 或无效组合');
       if (seen[id]) throw new Error('不能重复携带同一 BUFF');
       seen[id] = true;
     });
-    return { difficultyId: difficultyId, buffIds: ids.slice().sort() };
+    var affixes = c.affixIds === undefined ? [] : c.affixIds;
+    if (!Array.isArray(affixes)) throw new Error('困难词缀格式无效');
+    var seenAffixes = {};
+    Array.from(affixes).forEach(function (id) {
+      if (!findDefinition(AFFIXES, id)) throw new Error('未知困难词缀');
+      if (seenAffixes[id]) throw new Error('不能重复选择同一词缀');
+      seenAffixes[id] = true;
+    });
+    var result = { difficultyId: difficultyId, buffIds: ids.slice().sort() };
+    if (difficultyId === 'normal') {
+      if (affixes.length || c.hardRulesVersion !== undefined) throw new Error('普通模式不能携带困难规则或词缀');
+    } else {
+      var version = c.hardRulesVersion === undefined ? HARD_RULES_VERSION : c.hardRulesVersion;
+      if (version !== 1 && version !== HARD_RULES_VERSION) throw new Error('困难规则版本无效');
+      if (version === 1 && affixes.length) throw new Error('旧版困难存档不能增加词缀');
+      result.hardRulesVersion = version;
+      if (affixes.length) result.affixIds = affixes.slice().sort();
+    }
+    return result;
   }
   function growthStatus(totalRep, legacyUnlockRep) {
     if (totalRep === undefined) totalRep = 0;
@@ -105,15 +156,32 @@
         error: locked.length ? '尚未解锁：' + locked.join('、') : cost > g.capacity ? 'BUFF 消耗超过总额度' : '' };
     } catch (e) { return { ok: false, error: e.message }; }
   }
-  function runModifiers(config) {
+  function hardRule(config, scenarioId) {
+    var c = normalizeRunConfig(config);
+    if (c.difficultyId !== 'hard') return null;
+    if (c.hardRulesVersion === 1) return { name: '旧版困难', description: '人口八项资源需求 ×1.15；沿用此存档的原始规则。', effects: {} };
+    if (!Object.prototype.hasOwnProperty.call(HARD_RULES, scenarioId)) throw new Error('困难规则关卡无效');
+    return JSON.parse(JSON.stringify(HARD_RULES[scenarioId]));
+  }
+  function runModifiers(config, scenarioId) {
+    var current = config === undefined;
     var c = normalizeRunConfig(config === undefined ? state && state.runConfig : config);
-    var difficulty = findDefinition(DIFFICULTIES, c.difficultyId);
+    var selected = scenarioId === undefined ? (current && state && state.scenarioId || 'town') : scenarioId;
+    var rule = hardRule(c, selected);
     var effects = c.buffIds.map(function (id) { return findDefinition(BUFFS, id).effects; });
-    var populationDemand = {}, baseSupply = {}, cost = 0, money = START_MONEY, pop = START_POP, opening = 1;
-    effects.forEach(function (e) { money += e.startingMoney || 0; pop += e.startingPop || 0; opening += e.openingBlueprints || 0; });
+    if (rule) effects.push(rule.effects);
+    (c.affixIds || []).forEach(function (id) { effects.push(findDefinition(AFFIXES, id).effects); });
+    var populationDemand = {}, baseSupply = {}, cost = 0, money = START_MONEY, pop = START_POP, opening = 1, idle = 0, price = 1;
+    var cap = CAP, taskMultiplier = 1, outputMultiplier = 1, satisfactionPenalty = 0;
+    effects.forEach(function (e) {
+      money += e.startingMoney || 0; pop += e.startingPop || 0; opening += e.openingBlueprints || 0;
+      idle += e.idleWorkers || 0; price *= e.buildingCostMultiplier || 1;
+      cap += e.buildingCap || 0; taskMultiplier *= e.taskOccupancyMultiplier || 1;
+      outputMultiplier *= e.buildingOutputMultiplier || 1; satisfactionPenalty += e.satisfactionPenalty || 0;
+    });
     RES.forEach(function (r) {
       // Keep full rate precision; round the final city demand once, after population multiplication.
-      var multiplier = difficulty.populationDemandMultiplier;
+      var multiplier = c.difficultyId === 'hard' && c.hardRulesVersion === 1 ? 1.15 : 1;
       baseSupply[r.key] = 0;
       effects.forEach(function (e) {
         multiplier *= (e.populationDemandMultiplier || {})[r.key] || 1;
@@ -123,6 +191,8 @@
       cost += populationDemand[r.key];
     });
     return { config: c, startingMoney: money, startingPop: pop, openingBlueprints: opening,
+      idleWorkers: idle, buildingCostMultiplier: price, hardRule: rule,
+      buildingCap: cap, taskOccupancyMultiplier: taskMultiplier, buildingOutputMultiplier: outputMultiplier, satisfactionPenalty: satisfactionPenalty,
       populationDemand: populationDemand, baseSupply: baseSupply, occupancyCost: Number(cost.toFixed(8)) };
   }
 
@@ -258,13 +328,14 @@
   /* 一人八项需求总和，用于把“占用人口”折算成负向产出。 */
   var OCCUPANCY_COST = round2(RES.reduce(function (sum, r) { return sum + r.demand; }, 0));
 
-  function buildingNet(def, config) {
+  function buildingNet(def, config, scenarioId) {
     if (!def || !def.out || !Object.keys(def.out).length) return null;
     var gross = 0;
     var extra = 0;
-    Object.keys(def.out).forEach(function (k) { gross += def.out[k]; });
+    var output = buildingOutput(def, config, scenarioId);
+    Object.keys(output).forEach(function (k) { gross += output[k]; });
     Object.keys(def.extra || {}).forEach(function (k) { extra += def.extra[k]; });
-    return round2(gross - extra - (def.labor || 0) * runModifiers(config).occupancyCost);
+    return round2(gross - extra - (def.labor || 0) * runModifiers(config, scenarioId).occupancyCost);
   }
 
   function isAdvancedBuilding(def) {
@@ -527,10 +598,13 @@
       var def = TASK_BY_ID[t.defId];
       if (t.uid !== excludeUid && def.type === 'malignant' && !t.aReleased) addTo(occ, def.burdenA);
     });
-    if (discount) {
-      RES.forEach(function (r) { occ[r.key] = round2(occ[r.key] * (1 - discount)); });
-    }
-    return occ;
+    return adjustedTaskOccupancy(occ, discount);
+  }
+
+  function adjustedTaskOccupancy(occ, discount) {
+    var result = {}, multiplier = runModifiers().taskOccupancyMultiplier;
+    Object.keys(occ || {}).forEach(function (k) { result[k] = round2(occ[k] * multiplier * (1 - (discount || 0))); });
+    return result;
   }
 
   function compute() {
@@ -555,9 +629,9 @@
       if (isAdvancedBuilding(def)) {
         advancedBuildings.push(b);
         addTo(advancedExtra, def.extra);
-        addTo(advancedOut, def.out);
+        addTo(advancedOut, buildingOutput(def));
       } else {
-        addTo(supply, def.out);
+        addTo(supply, buildingOutput(def));
       }
       addTo(extra, def.extra);
     });
@@ -617,7 +691,7 @@
     }
     if (!advancedStopped) {
       advancedBuildings.forEach(function (b) {
-        var out = BUILDING_BY_ID[b.defId].out;
+        var out = buildingOutput(BUILDING_BY_ID[b.defId]);
         var scaled = {};
         Object.keys(out).forEach(function (k) { scaled[k] = round2(out[k] * advancedMultiplier); });
         addTo(supply, scaled);
@@ -644,7 +718,7 @@
     var sum = round2(per.reduce(function (s, p) { return s + p.score; }, 0));
     var penalty = popPenalty(state.pop);
     var over = round2(per.reduce(function (s, p) { return s + p.over; }, 0));
-    var baseSat = round2(sum - penalty - DEFICIT + market);
+    var baseSat = round2(sum - penalty - DEFICIT + market - modifiers.satisfactionPenalty);
     /* 后期压力：T1–6 为 0，T7 起线性增加到 T30 的 5；不区分基础满意度正负。 */
     var turnPressure = state.turn <= PRESSURE_START ? 0 :
       round2(Math.min(PRESSURE_MAX, (state.turn - PRESSURE_START) * PRESSURE_MAX / (MAX_TURNS - PRESSURE_START)));
@@ -656,7 +730,7 @@
       supply: supply, demand: demand, extra: extra, occ: occ, occDiscount: discount, per: per,
       populationDemand: modifiers.populationDemand, occupancyCost: modifiers.occupancyCost,
       sum: sum, penalty: penalty, over: over,
-      baseSat: baseSat, turnPressure: turnPressure,
+      baseSat: baseSat, turnPressure: turnPressure, affixPenalty: modifiers.satisfactionPenalty,
       sat: sat, repGain: repGain, popLoss: popLoss, market: market,
       advancedStopped: advancedStopped, advancedShort: advancedShort,
       advancedReasons: advancedReasons,
@@ -833,8 +907,24 @@
   }
 
   function laborAvailable() {
-    return state.pop - laborUsed();
+    return laborCapacity() - laborUsed();
   }
+
+  function laborCapacity() {
+    return Math.max(0, state.pop - runModifiers().idleWorkers);
+  }
+
+  function buildingCost(def, config, scenarioId) {
+    return Math.ceil(def.cost * runModifiers(config, scenarioId).buildingCostMultiplier);
+  }
+
+  function buildingOutput(def, config, scenarioId) {
+    var output = {}, multiplier = runModifiers(config, scenarioId).buildingOutputMultiplier;
+    Object.keys(def.out || {}).forEach(function (k) { output[k] = round2(def.out[k] * multiplier); });
+    return output;
+  }
+
+  function buildingCapacity() { return runModifiers().buildingCap; }
 
   function buildStatus(defId) {
     var def = BUILDING_BY_ID[defId];
@@ -844,10 +934,10 @@
     if (rewardPending()) return { ok: false, reason: '先选择任务奖励' };
     if (!isBuildingAvailable(defId)) return { ok: false, reason: '蓝图未解锁' };
     if (state.hasBuilt) return { ok: false, reason: '本回合已建造/升级' };
-    if (state.buildings.length >= CAP) return { ok: false, reason: '城市已满 24 座' };
+    if (state.buildings.length >= buildingCapacity()) return { ok: false, reason: '城市已满 ' + buildingCapacity() + ' 座' };
     if (countBuilt(defId) >= def.max) return { ok: false, reason: '已达上限 ' + def.max };
     if (def.labor > laborAvailable()) return { ok: false, reason: '劳力不足' };
-    if (state.money < def.cost) return { ok: false, reason: '金钱不足' };
+    if (state.money < buildingCost(def)) return { ok: false, reason: '金钱不足' };
     return { ok: true, reason: '' };
   }
 
@@ -855,11 +945,12 @@
     var st = buildStatus(defId);
     if (!st.ok) return { ok: false, error: st.reason };
     var def = BUILDING_BY_ID[defId];
-    state.money -= def.cost;
+    var price = buildingCost(def);
+    state.money -= price;
     state.buildings.push({ uid: 'b' + (state.nextUid++), defId: defId, active: true });
     state.hasBuilt = true;
     state.stats.built += 1;
-    log('建造：' + def.name + '（-' + def.cost + ' 金，劳力 ' + def.labor + '）', 'build');
+    log('建造：' + def.name + '（-' + price + ' 金，劳力 ' + def.labor + '）', 'build');
     return { ok: true };
   }
 
@@ -1163,8 +1254,8 @@
     if (state.pendingDraw) return { ok: false, error: '先选择蓝图' };
     if (rewardPending()) return { ok: false, error: '先选择任务奖励' };
     var used = laborUsed();
-    if (used > state.pop) {
-      return { ok: false, error: '劳力不足：已占用 ' + used + ' / 人口 ' + state.pop + '，请先停用建筑' };
+    if (used > laborCapacity()) {
+      return { ok: false, error: '劳力不足：已占用 ' + used + ' / 可工作人口 ' + laborCapacity() + '，请先停用建筑' };
     }
     if (state.turn >= MAX_TURNS) {
       var current = compute();
@@ -1206,11 +1297,12 @@
     var selected = scenarioId === undefined ? 'town' : scenarioId;
     if (!SCENARIO_BY_ID[selected]) throw new Error('未知关卡：' + selected);
     var runConfig = normalizeRunConfig(config);
+    if (runConfig.hardRulesVersion === 1) throw new Error('旧版困难规则仅用于继续存档');
     var growth = growthStatus(growthRep, legacyUnlockRep);
     if (growth.scenarioIds.indexOf(selected) < 0) throw new Error('累计声望 ' + SCENARIO_BY_ID[selected].unlockRep + ' 解锁此关');
     var status = runConfigStatus(runConfig, growth.totalRep, growth.legacyUnlockRep);
     if (!status.ok) throw new Error(status.error);
-    var modifiers = runModifiers(runConfig);
+    var modifiers = runModifiers(runConfig, selected);
     var s = (seed === undefined || seed === null || seed === '') ? Math.floor(Math.random() * 1000000007) : Number(seed);
     if (!isFinite(s)) s = 1;
     s = s >>> 0;
@@ -1251,6 +1343,10 @@
     log(SCENARIO_BY_ID[selected].name + '开局：P' + modifiers.startingPop + '、' + modifiers.startingMoney + ' 金。' +
       findDefinition(DIFFICULTIES, runConfig.difficultyId).name + ' · ' + (runConfig.buffIds.map(function (id) { return findDefinition(BUFFS, id).name; }).join('＋') || '无加成') +
       '；T30 验收建设目标。', 'start');
+    if (modifiers.hardRule) log('困难规则：' + modifiers.hardRule.name + ' · ' + modifiers.hardRule.description, 'start');
+    (runConfig.affixIds || []).forEach(function (id) {
+      var a = findDefinition(AFFIXES, id); log('困难词缀：' + a.name + ' · ' + a.description, 'start');
+    });
     openDraw('opening', { count: modifiers.openingBlueprints, options: modifiers.openingBlueprints > 1 ? 5 : 3 });
     return state;
   }
@@ -1290,7 +1386,14 @@
         s.legacyUnlockRep = legacyGrowthRep(s.growthRep);
         if (s.final) s.final.legacyUnlockRep = s.legacyUnlockRep;
       }
-      runConfig = normalizeRunConfig(s.runConfig);
+      // Old saves froze the universal ×1.15 rule. Never change a live city's economics on import.
+      function savedConfig(c) {
+        if (c && c.difficultyId === 'hard' && c.hardRulesVersion === undefined) {
+          c = Object.assign({}, c, { hardRulesVersion: 1 });
+        }
+        return normalizeRunConfig(c);
+      }
+      runConfig = savedConfig(s.runConfig);
       growth = growthStatus(s.growthRep, s.legacyUnlockRep);
       if (s.scenarioId && growth.scenarioIds.indexOf(s.scenarioId) < 0) return { ok: false, error: '存档关卡尚未解锁' };
       var configStatus = runConfigStatus(runConfig, growth.totalRep, growth.legacyUnlockRep);
@@ -1301,7 +1404,7 @@
       if (s.rerollsRemaining !== undefined && (!Number.isInteger(s.rerollsRemaining) || s.rerollsRemaining < 0 || s.rerollsRemaining > granted)) {
         return { ok: false, error: '蓝图刷新次数无效' };
       }
-      if (s.final && s.final.runConfig != null && JSON.stringify(normalizeRunConfig(s.final.runConfig)) !== JSON.stringify(runConfig)) {
+      if (s.final && s.final.runConfig != null && JSON.stringify(savedConfig(s.final.runConfig)) !== JSON.stringify(runConfig)) {
         return { ok: false, error: '存档开局配置与结算不一致' };
       }
       if (s.final && s.final.growthRep !== undefined && s.final.growthRep !== growth.totalRep) return { ok: false, error: '成长快照与结算不一致' };
@@ -1351,6 +1454,14 @@
     evaluateScenario: evaluateScenario,
     goalStatus: goalStatus,
     DIFFICULTIES: JSON.parse(JSON.stringify(DIFFICULTIES)),
+    HARD_RULES: JSON.parse(JSON.stringify(HARD_RULES)),
+    HARD_RULES_VERSION: HARD_RULES_VERSION,
+    AFFIXES: JSON.parse(JSON.stringify(AFFIXES)),
+    hardRule: hardRule,
+    buildingCost: buildingCost,
+    buildingCapacity: buildingCapacity,
+    buildingOutput: buildingOutput,
+    adjustedTaskOccupancy: adjustedTaskOccupancy,
     BUFFS: JSON.parse(JSON.stringify(BUFFS)),
     normalizeRunConfig: normalizeRunConfig,
     runModifiers: runModifiers,
@@ -1386,6 +1497,7 @@
     TOWN_LEVELS: TOWN_LEVELS,
     laborUsed: laborUsed,
     laborAvailable: laborAvailable,
+    laborCapacity: laborCapacity,
     popPenalty: popPenalty,
     RES: RES,
     BASE_BUILDINGS: BASE_BUILDINGS,

@@ -40,7 +40,7 @@ function utility(c,s,def,cfg) {
 }
 function adjust(s,def,cfg,trace) {
   for(let guard=0;guard<30;guard++) {
-    const over=G.laborUsed()>s.pop, before=utility(G.compute(),s,def,cfg);
+    const over=G.laborUsed()>G.laborCapacity(), before=utility(G.compute(),s,def,cfg);
     let best;
     for(const b of s.buildings) {
       const d=G.buildingDef(b.defId);
@@ -120,7 +120,7 @@ function play(seed,id,basicOnly=false,profile=selected[id],runConfig,growthRep=0
             if(G.buildStatus(d.id).ok)preview=G.buildPreview(d.id);
           } finally { if(off)off.active=true; }
           if(!preview||!preview.ok)continue;
-          const value=utility(preview.after,s,def,cfg)-before-Math.sqrt(d.cost)*.1;
+          const value=utility(preview.after,s,def,cfg)-before-Math.sqrt(G.buildingCost(d))*.1;
           if(value>.1&&(!best||value>best.value))best={id:d.id,value,off};
         }
       }

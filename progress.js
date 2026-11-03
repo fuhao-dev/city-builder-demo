@@ -29,7 +29,9 @@
   function key(scenarioId, config, growthRep, legacyUnlockRep, rerollsGranted) {
     if (!G.SCENARIOS.some(function (s) { return s.id === scenarioId; })) throw new Error('未知关卡');
     var c = G.normalizeRunConfig(config);
-    return scenarioId + '|' + c.difficultyId + '|' + (c.buffIds.join('+') || 'none') + growthSignature(growthRep, legacyUnlockRep, rerollsGranted);
+    return scenarioId + '|' + c.difficultyId + '|' + (c.buffIds.join('+') || 'none') +
+      (c.hardRulesVersion === G.HARD_RULES_VERSION ? '|hard:' + c.hardRulesVersion : '') +
+      (c.affixIds ? '|affixes:' + c.affixIds.join('+') : '') + growthSignature(growthRep, legacyUnlockRep, rerollsGranted);
   }
   function validRecord(r) {
     return r && r.cleared === true && typeof r.bestRep === 'number' && isFinite(r.bestRep) && r.bestRep >= 0;
@@ -38,6 +40,11 @@
     var records = {};
     Object.keys(data && typeof data === 'object' ? data : {}).forEach(function (k) {
       var parts = k.split('|'), config = { difficultyId: parts[1], buffIds: parts[2] === 'none' ? [] : (parts[2] || '').split('+') };
+      if (config.difficultyId === 'hard') {
+        config.hardRulesVersion = parts.indexOf('hard:' + G.HARD_RULES_VERSION) >= 0 ? G.HARD_RULES_VERSION : 1;
+        var affixPart = parts.filter(function (part) { return part.indexOf('affixes:') === 0; })[0];
+        if (affixPart) config.affixIds = affixPart.slice(8).split('+');
+      }
       // Only known growth profiles and canonical combinations can become record keys.
       var profiles = [0, G.REROLL_UNLOCK_REP, G.SECOND_REROLL_REP].concat(G.BLUEPRINTS.filter(function (b) { return b.unlockRep > 0; }).map(function (b) { return b.unlockRep; }));
       try {
@@ -70,10 +77,11 @@
   }
   function validReceipt(r) {
     if (!r || !amount(r.baseRep) || !amount(r.clearBonus) || !amount(r.firstClearBonus) ||
-        !amount(r.total) || r.total !== r.baseRep + r.clearBonus + r.firstClearBonus ||
+        (r.affixBonus !== undefined && !amount(r.affixBonus)) ||
+        !amount(r.total) || r.total !== r.baseRep + r.clearBonus + r.firstClearBonus + (r.affixBonus || 0) ||
         typeof r.cleared !== 'boolean' || (r.rewardVersion !== 0 && r.rewardVersion !== G.REWARD_VERSION)) return false;
-    if (r.rewardVersion === 0 && (r.clearBonus || r.firstClearBonus)) return false;
-    if (!r.cleared && (r.clearBonus || r.firstClearBonus)) return false;
+    if (r.rewardVersion === 0 && (r.clearBonus || r.firstClearBonus || r.affixBonus)) return false;
+    if (!r.cleared && (r.clearBonus || r.firstClearBonus || r.affixBonus)) return false;
     if (r.scenarioId !== null) {
       try { firstClearKey(r.scenarioId, r.difficultyId); } catch (e) { return false; }
     } else if (r.difficultyId !== null || r.cleared) return false;
@@ -123,7 +131,11 @@
   }
   function rewardPreview(data, scenarioId, config) {
     var c = G.normalizeRunConfig(config), claimed = firstCleared(data, scenarioId, c.difficultyId);
-    return { clearBonus: REWARDS[scenarioId].clear * (c.difficultyId === 'hard' ? 2 : 1),
+    var clear = REWARDS[scenarioId].clear * (c.difficultyId === 'hard' ? 2 : 1);
+    var percent = (c.affixIds || []).reduce(function (sum, id) {
+      return sum + G.AFFIXES.filter(function (a) { return a.id === id; })[0].rewardPercent;
+    }, 0);
+    return { clearBonus: clear, affixBonus: Math.floor(clear * percent / 100), affixPercent: percent,
       firstClearBonus: claimed ? 0 : REWARDS[scenarioId].first, firstCleared: claimed };
   }
   function growthReward(data, state) {
@@ -142,11 +154,11 @@
       if (scenarioId) { firstClearKey(scenarioId, c.difficultyId); key(scenarioId, c, state.growthRep, state.legacyUnlockRep, state.rerollsGranted); }
       if (scenarioId && (!f.goal || typeof f.cleared !== 'boolean' || f.goal.cleared !== f.cleared)) return null;
       var cleared = !!scenarioId && f.cleared === true && !!f.goal && f.goal.cleared === true && state.rewardVersion === G.REWARD_VERSION;
-      var bonus = cleared ? rewardPreview(ledger, scenarioId, c) : { clearBonus: 0, firstClearBonus: 0 };
-      var before = totalRep(ledger), total = f.rep + bonus.clearBonus + bonus.firstClearBonus;
+      var bonus = cleared ? rewardPreview(ledger, scenarioId, c) : { clearBonus: 0, firstClearBonus: 0, affixBonus: 0 };
+      var before = totalRep(ledger), total = f.rep + bonus.clearBonus + bonus.firstClearBonus + bonus.affixBonus;
       if (!amount(total)) return null;
       return { baseRep: f.rep, clearBonus: bonus.clearBonus, firstClearBonus: bonus.firstClearBonus,
-        total: total, scenarioId: scenarioId, difficultyId: scenarioId ? c.difficultyId : null,
+        affixBonus: bonus.affixBonus, total: total, scenarioId: scenarioId, difficultyId: scenarioId ? c.difficultyId : null,
         cleared: cleared, rewardVersion: state.rewardVersion, beforeRep: before,
         afterRep: Math.min(Number.MAX_SAFE_INTEGER, before + total) };
     } catch (e) { return null; }

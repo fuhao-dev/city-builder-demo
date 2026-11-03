@@ -10,7 +10,7 @@ eq(empty,L.load(),'save is immutable');eq(data.slots[0],{name:'起步',buffIds:[
 data=L.save(data,1,'蓝图',['blueprint_pack','settlers']);
 data=L.save(data,2,'无加成',[]);
 eq(L.load(JSON.parse(JSON.stringify(data))),data,'all three slots survive persistence');
-eq(L.apply(data.slots[0],'hard',0),{difficultyId:'hard',buffIds:['preparation','water_saving']},'loading retains chosen difficulty');
+eq(L.apply(data.slots[0],'hard',0),G.normalizeRunConfig({difficultyId:'hard',buffIds:['preparation','water_saving']}),'loading retains chosen difficulty');
 const applied=L.apply(data.slots[0],'normal',0);applied.buffIds.pop();eq(data.slots[0].buffIds.length,2,'loaded config does not share saved arrays');
 eq(L.status(data.slots[1],'normal',0).ok,false,'locked BUFF profile remains unavailable');
 eq(L.status(data.slots[1],'normal',1000).ok,false,'unlocked BUFFs still exceed current capacity');
