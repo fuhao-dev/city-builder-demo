@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>周目小镇 · 城市大厅 v3.16.2</title>
+  <title>周目小镇 · 城市大厅 v3.19.0</title>
   <meta name="theme-color" content="#0b1220">
   <link rel="icon" href="favicon.ico?v=3" sizes="any">
   <link rel="icon" type="image/png" sizes="32x32" href="assets/icons/favicon-32.png?v=3">
   <link rel="icon" type="image/png" sizes="192x192" href="assets/icons/icon-192.png?v=3">
   <link rel="apple-touch-icon" sizes="180x180" href="assets/icons/apple-touch-icon.png?v=3">
-  <link rel="stylesheet" href="style.css?v=3162a">
+  <link rel="stylesheet" href="style.css?v=3190a">
 </head>
 <body>
   <main id="homeScreen" class="home-screen" aria-label="城市大厅"></main>
@@ -109,6 +109,8 @@
     <button id="btnRestart" class="btn ghost" type="button">主界面</button>
     <button id="btnGrowth" class="btn ghost" type="button">成长</button>
     <button id="btnHelp" class="btn ghost" type="button">帮助</button>
+    <button id="btnSound" class="btn ghost" data-open-sound type="button">声音</button>
+    <button class="btn ghost" data-open-saves type="button">存档</button>
     <span class="save-note" id="saveNote">自动存档</span>
     <div class="action-hint" id="actionHint"></div>
   </footer>
@@ -120,10 +122,30 @@
   <button id="btnShowModal" class="btn primary show-modal hidden" type="button">返回选择 · 资源/人口</button>
   <div id="toast" class="toast"></div>
 
-  <script src="game.js?v=3162a"></script>
-  <script src="progress.js?v=3162a"></script>
-  <script src="loadouts.js?v=3162a"></script>
-  <script src="onboarding.js?v=3162a"></script>
-  <script src="ui.js?v=3162a"></script>
+  <dialog id="soundSettings" class="sound-dialog" aria-labelledby="soundTitle" aria-describedby="soundStatus">
+    <div class="sound-heading"><div><h2 id="soundTitle">声音设置</h2><p id="soundStatus" role="status" aria-live="polite">首次操作后播放音乐</p></div><button id="soundClose" class="text-btn" type="button" aria-label="关闭声音设置">✕</button></div>
+    <label class="sound-mute"><span>全部静音</span><input id="soundMuted" type="checkbox" role="switch"></label>
+    <div class="sound-control"><label for="soundMusic">背景音乐 <output id="soundMusicValue" for="soundMusic">30%</output></label><input id="soundMusic" type="range" min="0" max="100" step="1" value="30"><p>晨光街角 · 原创循环音乐</p></div>
+    <div class="sound-control"><label for="soundEffects">操作音效 <output id="soundEffectsValue" for="soundEffects">60%</output></label><input id="soundEffects" type="range" min="0" max="100" step="1" value="60"><p>点击、建造、任务、蓝图与回合提示</p></div>
+    <div class="sound-actions"><button id="soundPreview" class="btn ghost" data-audio-preview type="button">试听音效</button><button id="soundDone" class="btn primary" type="button">完成</button></div>
+    <p class="sound-note">调整立即生效并自动保存 · 音量调至 0 可单独关闭</p>
+  </dialog>
+
+  <dialog id="saveManager" class="save-dialog" aria-labelledby="saveTitle" aria-describedby="saveStatus">
+    <div class="sound-heading"><div><h2 id="saveTitle">存档管理</h2><p>随时保存，也能从另一台设备继续建设。</p></div><button id="saveClose" class="text-btn" type="button" aria-label="关闭存档管理">✕</button></div>
+    <p id="saveStatus" class="save-status" role="status" aria-live="polite"></p>
+    <div id="saveBody"></div>
+    <input id="saveImport" type="file" accept=".json,application/json" hidden>
+  </dialog>
+
+  <script src="game.js?v=3190a"></script>
+  <script src="progress.js?v=3190a"></script>
+  <script src="loadouts.js?v=3190a"></script>
+  <script src="onboarding.js?v=3190a"></script>
+  <script src="audio.js?v=3190a"></script>
+  <script src="saves.js?v=3190a"></script>
+  <script src="cloud-save.js?v=3190a"></script>
+  <script src="save-ui.js?v=3190a"></script>
+  <script src="ui.js?v=3190a"></script>
 </body>
 </html>

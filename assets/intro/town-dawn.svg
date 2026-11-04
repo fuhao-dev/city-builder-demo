@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="320" viewBox="0 0 240 160" shape-rendering="crispEdges">
+  <path fill="#202d49" d="M0 0h240v160H0z"/>
+  <path fill="#344663" d="M0 36h240v62H0z"/>
+  <path fill="#786973" d="M0 64h240v34H0z"/>
+  <path fill="#e8bd76" d="M184 24h16v4h6v6h4v16h-4v6h-6v4h-16v-4h-6v-6h-4V34h4v-6h6z"/>
+  <path fill="#d9c3a2" d="M18 23h23v4h13v5H12v-5h6zm81 22h17v4h14v4H91v-4h8zm112-31h18v4h11v5h-35v-5h6z"/>
+  <path fill="#384f56" d="M0 77h12V67h12V57h12v10h10v13h14V70h12V58h14v12h10v9h14V66h12V56h10v12h10v12h12V70h12V62h12v12h14V64h12V54h12v12h12v13h12v-9h12v90H0z"/>
+  <path fill="#4d7462" d="M0 95h24v-7h36v7h30v-8h42v5h40v-7h40v8h28v67H0z"/>
+  <path fill="#5d8770" d="M0 115h54v-6h47v9h39v-6h47v-7h53v55H0z"/>
+  <path fill="#75a28b" d="M177 97h15v12h-9v12h-13v12h-12v27h-29v-21h14v-15h15v-14h19z"/>
+  <path fill="#b6ccb1" d="M180 106h9v3h-9zm-14 17h9v3h-9zm-28 27h13v3h-13z"/>
+  <path fill="#c1a479" d="M33 137h104v10H27v-8h6zm79-20h14v30h-14zm14-8h33v9h-33z"/>
+  <path fill="#9a8567" d="M41 149h64v3H41zm92-39h20v2h-20z"/>
+  <!-- Town hall and warm windows. -->
+  <path fill="#263b48" d="M76 94h42v29H76z"/>
+  <path fill="#cfb27d" d="M78 91h38v29H78z"/>
+  <path fill="#876649" d="M74 91v-4h4v-4h4v-4h30v4h4v4h4v4z"/>
+  <path fill="#d7aa66" d="M82 81h30v2H82zm-6 8h44v2H76z"/>
+  <path fill="#e7ce98" d="M88 65h18v19H88z"/>
+  <path fill="#825e43" d="M84 67v-4h4v-4h18v4h4v4z"/>
+  <path fill="#f3d681" d="M94 69h6v7h-6zM82 97h8v8h-8zm22 0h8v8h-8z"/>
+  <path fill="#4e5b51" d="M93 106h9v14h-9z"/>
+  <path fill="#f1d391" d="M96 109h3v8h-3z"/>
+  <path fill="#e7c992" d="M76 120h42v3H76zm5 3h32v3H81z"/>
+  <path fill="#74a99b" d="M106 58h2v-10h-2zm2-10h12v7h-12z"/>
+  <!-- Starter homes. -->
+  <path fill="#d6c29a" d="M28 108h28v24H28zm110-19h23v22h-23z"/>
+  <path fill="#b57757" d="M24 109v-4h4v-4h4v-4h20v4h4v4h4v4zm110-19v-4h4v-4h4v-4h15v4h4v4h4v4z"/>
+  <path fill="#f4d794" d="M31 113h7v7h-7zm15 0h7v7h-7zm96-19h5v6h-5zm10 0h5v6h-5z"/>
+  <path fill="#5c6256" d="M39 121h7v11h-7zm109-19h5v9h-5z"/>
+  <!-- Fields and an empty building plot. -->
+  <path fill="#96784d" d="M21 143h36v13H21zM184 125h32v22h-32z"/>
+  <path fill="#c8b276" d="M24 146h30v2H24zm0 5h30v2H24z"/>
+  <path fill="#8ead6a" d="M26 141h3v9h-3zm7 0h3v9h-3zm7 0h3v9h-3zm7 0h3v9h-3z"/>
+  <path fill="#dac7a0" d="M183 122h3v8h-3zm30 0h3v8h-3zm-30 20h3v8h-3zm30 0h3v8h-3zm-27-16h27v2h-27zm0 18h27v2h-27z"/>
+  <!-- Small conifers frame the foreground. -->
+  <path fill="#31554d" d="M4 115h17v5H4zm3-9h11v9H7zm3-8h5v8h-5zm208 7h20v6h-20zm3-11h14v11h-14zm4-10h6v10h-6z"/>
+  <path fill="#b19a6e" d="M11 120h3v12h-3zm215-9h4v13h-4z"/>
+  <path fill="#edc88a" d="M66 133h3v3h-3zm-2 3h7v2h-7zm94 10h3v3h-3zm-2 3h7v2h-7z"/>
+  <path fill="#85af8b" d="M6 150h6v2H6zm64 4h7v2h-7zm150 0h9v2h-9zm-22-39h7v2h-7z"/>
+</svg>

@@ -1,4 +1,4 @@
-/* 周目小镇 · v3.16.2 城市大厅与新手引导 */
+/* 周目小镇 · v3.19.0 城市大厅、引导、声音与存档管理 */
 (function () {
   'use strict';
 
@@ -7,6 +7,8 @@
   var O = window.DSHOnboarding;
   var P = window.DSHProgress;
   var L = window.DSHLoadouts;
+  var audio = window.DSHAudio.create(window);
+  var saves = window.DSHSaves, saveUI;
   var $ = function (id) { return document.getElementById(id); };
   var BEST_KEY = 'dsh_city_best_rep_v33';
   var SAVE_KEY = 'dsh_city_save_v34';
@@ -24,6 +26,7 @@
   var tutorialReturnHome = true;
   var tutorialLastStep = null;
   var uiPrefs = {};
+  var storyIndex = null;
   var replacingCity = false;
   var focusReturn = null;
   var toastTimer = null;
@@ -41,6 +44,45 @@
   var loadoutNames = [];
 
   function fmt(n) { return Math.round(n).toLocaleString('zh-CN'); }
+  function syncSound() {
+    var state = audio.getState(), prefs = state.settings;
+    ['music','effects'].forEach(function (key) {
+      var id = key === 'music' ? 'soundMusic' : 'soundEffects', value = Math.round(prefs[key] * 100);
+      $(id).value = value;
+      $(id).setAttribute('aria-valuetext', value + '%');
+      $(id + 'Value').value = value + '%';
+    });
+    $('soundMuted').checked = prefs.muted;
+    $('soundPreview').disabled = !state.supported || prefs.muted || !prefs.effects;
+    var status = !state.supported ? '当前环境暂不支持声音' : prefs.muted ? '全部声音已静音' : state.hidden ? '已在后台暂停' :
+      state.musicPlaying ? '正在播放 · 晨光街角' : !prefs.music ? '背景音乐已关闭' : '首次操作后播放音乐';
+    $('soundStatus').textContent = status;
+    $('soundStatus').dataset.audioState = state.musicPlaying ? 'playing' : 'paused';
+    Array.from(document.querySelectorAll('[data-open-sound]')).forEach(function (b) {
+      b.textContent = (prefs.muted ? '🔇' : '🔊') + ' 声音';
+      b.setAttribute('aria-label', '声音设置' + (prefs.muted ? '（已静音）' : ''));
+    });
+  }
+  function openSound() {
+    syncSound();
+    if (!$('soundSettings').open) $('soundSettings').showModal();
+  }
+  function initSound() {
+    $('soundClose').addEventListener('click', function () { $('soundSettings').close(); });
+    $('soundDone').addEventListener('click', function () { $('soundSettings').close(); });
+    $('soundMuted').addEventListener('change', function () {
+      audio.setSettings({ muted: this.checked }); audio.unlock();
+    });
+    [['soundMusic','music'],['soundEffects','effects']].forEach(function (row) {
+      $(row[0]).addEventListener('input', function () {
+        var change = {}; change[row[1]] = Number(this.value) / 100;
+        audio.setSettings(change); audio.unlock();
+      });
+    });
+    $('soundEffects').addEventListener('change', function () { audio.unlock().then(function () { audio.play('confirm'); }); });
+    $('soundPreview').addEventListener('click', function () { audio.unlock().then(function () { audio.play('reward'); }); });
+    audio.init(syncSound);
+  }
   function fmt1(n) { return (Math.round(n * 10) / 10).toFixed(1); }
   function fmtNet(n) { return (n > 0 ? '+' : '') + (Math.round(n * 100) / 100).toFixed(2); }
   function fmtRate(n) { return String(Number(n.toFixed(4))); }
@@ -70,7 +112,7 @@
     var g = currentGrowth(), check = G.runConfigStatus(pendingRunConfig, g.totalRep, g.legacyUnlockRep);
     if (!check.ok) { toast(check.error); return; }
     var updated = L.save(loadouts, index, loadoutNames[index], pendingRunConfig.buffIds);
-    try { localStorage.setItem(LOADOUT_KEY, JSON.stringify(updated)); }
+    try { saves.write(localStorage, LOADOUT_KEY, JSON.stringify(updated)); }
     catch (e) { toast('方案未能保存，请检查浏览器存储'); return; }
     loadouts = updated;
     loadoutNames[index] = updated.slots[index].name;
@@ -88,7 +130,7 @@
     toast('已载入「' + loadouts.slots[index].name + '」，难度与词缀保持不变');
   }
   function saveBest(rep) {
-    try { localStorage.setItem(BEST_KEY, String(rep)); } catch (e) {}
+    try { saves.write(localStorage, BEST_KEY, String(rep)); } catch (e) {}
   }
   function loadCampaign() {
     function read(key) { try { return JSON.parse(localStorage.getItem(key) || '{}'); } catch (e) { return {}; } }
@@ -99,7 +141,7 @@
     try { raw = JSON.parse(localStorage.getItem(GROWTH_KEY) || '{}') || {}; } catch (e) {}
     var ledger = P.loadGrowth(raw, loadCampaign());
     if (raw.version !== 2) {
-      try { localStorage.setItem(GROWTH_KEY, JSON.stringify(ledger)); } catch (e) {}
+      try { saves.write(localStorage, GROWTH_KEY, JSON.stringify(ledger)); } catch (e) {}
     }
     return ledger;
   }
@@ -112,7 +154,7 @@
     if (tutorial) return;
     var before = loadGrowth(), after = P.creditGrowth(before, S);
     if (JSON.stringify(before) !== JSON.stringify(after)) {
-      try { localStorage.setItem(GROWTH_KEY, JSON.stringify(after)); }
+      try { saves.write(localStorage, GROWTH_KEY, JSON.stringify(after)); }
       catch (e) { toast('局外成长未能保存，请检查浏览器存储'); }
     }
   }
@@ -121,7 +163,7 @@
     var records = loadCampaign();
     var updated = P.record(records, S);
     if (JSON.stringify(updated) === JSON.stringify(records)) return;
-    try { localStorage.setItem(CAMPAIGN_KEY, JSON.stringify(updated)); } catch (e) {}
+    try { saves.write(localStorage, CAMPAIGN_KEY, JSON.stringify(updated)); } catch (e) {}
   }
   function persist() {
     if (tutorial) return;
@@ -129,7 +171,7 @@
     try {
       var S = G.getState();
       if (!S) return;
-      localStorage.setItem(SAVE_KEY, JSON.stringify(G.exportState()));
+      saves.write(localStorage, SAVE_KEY, JSON.stringify(G.exportState()));
       if (note) note.textContent = '已自动存档 · T' + S.turn;
     } catch (e) {
       if (note) note.textContent = '自动存档不可用';
@@ -140,9 +182,6 @@
       var raw = localStorage.getItem(SAVE_KEY);
       return raw ? JSON.parse(raw) : null;
     } catch (e) { return null; }
-  }
-  function clearSave() {
-    try { localStorage.removeItem(SAVE_KEY); } catch (e) {}
   }
   function toast(msg) {
     var el = $('toast');
@@ -161,7 +200,43 @@
     });
   }
   function requirementLabel(r) { return (r.resource ? G.resource(r.resource).icon + ' ' : '') + r.label; }
-  function saveUiPrefs() { try { localStorage.setItem(UI_KEY, JSON.stringify(uiPrefs)); } catch (e) {} }
+  function saveUiPrefs() { try { saves.write(localStorage, UI_KEY, JSON.stringify(uiPrefs)); } catch (e) {} }
+  function storyHtml() {
+    var scenes = O.story(), scene = scenes[storyIndex], last = storyIndex === scenes.length - 1;
+    var town = mainGame.SCENARIOS.filter(function (s) { return s.id === 'town'; })[0];
+    var goals = town.requirements.map(function (r) {
+      return '<span>' + (r.key === 'pop' ? '👥' : '♥') + ' ' + esc(r.label) + ' <b>≥' + r.target + '</b></span>';
+    }).join('');
+    return '<div class="story-opening" data-story-scene="' + scene.id + '">' +
+      '<div class="story-top"><img src="assets/brand/loop-town-wordmark.png?v=3162a" width="180" height="60" alt="周目小镇"><button class="text-btn" data-story-skip type="button">跳过剧情</button></div>' +
+      '<div class="story-layout"><div class="story-art"><img src="assets/intro/town-dawn.svg" width="480" height="320" alt="晨光照亮小镇，田地与房屋旁留着待建的空地"><span>一座小镇，从你的第一步开始。</span></div>' +
+      '<section class="story-copy" aria-labelledby="storyTitle"><span class="eyebrow">' + scene.chapter + '</span><h2 id="storyTitle" tabindex="-1">' + scene.title + '</h2>' +
+      '<div class="story-speaker"><span aria-hidden="true">✉</span><b>镇务员 · 阿禾</b></div><p class="story-dialogue">' + scene.text.replace('{turns}', mainGame.MAX_TURNS) + '</p>' +
+      (scene.id === 'commission' ? '<div class="story-commission"><span>第一站 · ' + town.name + '</span><div>' + goals + '</div><small>第 ' + mainGame.MAX_TURNS + ' 回合验收 · 所有目标同时达成</small></div>' :
+        scene.id === 'practice' ? '<div class="story-practice"><span>📜 选蓝图</span><i>→</i><span>🌾 建农场</span><i>→</i><span>✓ 做任务</span></div><p class="story-note">结算声望会积累，逐步解锁 BUFF、蓝图与更多关卡。</p>' :
+        '<p class="story-note">市政厅的灯亮着，第一份委托已经放在桌上。</p>') +
+      '<div class="story-bottom"><div class="story-progress" role="group" aria-label="开场剧情进度">' + scenes.map(function (s, i) { return '<span class="' + (i === storyIndex ? 'current' : '') + '" aria-hidden="true"></span>'; }).join('') + '<small>' + (storyIndex + 1) + ' / ' + scenes.length + '</small></div>' +
+      '<div class="story-actions">' + (storyIndex > 0 ? '<button class="text-btn" data-story-back type="button">上一幕</button>' : '') +
+      (last ? '<button class="btn ghost" data-story-skip type="button">' + (showHelp ? '返回手册' : '先去大厅') + '</button><button class="btn primary" data-story-tutorial type="button">开始新手教程 →</button>' : '<button class="btn primary" data-story-next type="button">继续 →</button>') + '</div></div></section></div></div>';
+  }
+  function openStory() {
+    storyIndex = 0;
+    render();
+    $('modalCard').scrollTop = 0;
+    $('storyTitle').focus({ preventScroll: true });
+  }
+  function finishStory(practice) {
+    storyIndex = null;
+    uiPrefs.intro = 'seen'; saveUiPrefs();
+    if (practice) startTutorial();
+    else render();
+  }
+  function changeStory(delta) {
+    storyIndex = Math.max(0, Math.min(O.story().length - 1, storyIndex + delta));
+    render();
+    $('modalCard').scrollTop = 0;
+    $('storyTitle').focus({ preventScroll: true });
+  }
   function setCityTab(tab) {
     cityTab = tab;
     document.body.dataset.cityTab = tab;
@@ -376,8 +451,8 @@
     }
     var rows = growthMilestones(), next = rows.filter(function (r) { return !milestoneUnlocked(r, g.totalRep, g.legacyUnlockRep); })[0];
     var clearedCount = G.SCENARIOS.filter(function (s) { return Object.keys(loadCampaign()).some(function (k) { return k.indexOf(s.id + '|') === 0; }); }).length;
-    $('homeScreen').innerHTML = '<header class="home-header"><a class="home-brand" href="#" aria-label="周目小镇主界面"><img class="home-app-icon" src="assets/icons/icon-192.png?v=3" alt="" width="48" height="48"><div class="brand-lockup"><h1><img class="wordmark" src="assets/brand/loop-town-wordmark.png?v=3162a" width="252" height="84" alt="周目小镇"></h1><span>城市大厅 · v3.16.2</span></div></a><div class="home-header-actions">' +
-      (uiPrefs.tutorial ? '<button class="text-btn" data-start-tutorial type="button">' + (uiPrefs.tutorial === 'done' ? '重玩教程' : '新手教程') + '</button>' : '') + '<button class="btn ghost" data-home-help type="button">玩法帮助</button></div></header>' +
+    $('homeScreen').innerHTML = '<header class="home-header"><a class="home-brand" href="#" aria-label="周目小镇主界面"><img class="home-app-icon" src="assets/icons/icon-192.png?v=3" alt="" width="48" height="48"><div class="brand-lockup"><h1><img class="wordmark" src="assets/brand/loop-town-wordmark.png?v=3162a" width="252" height="84" alt="周目小镇"></h1><span>城市大厅 · v3.19.0</span></div></a><div class="home-header-actions">' +
+      (uiPrefs.tutorial ? '<button class="text-btn" data-start-tutorial type="button">' + (uiPrefs.tutorial === 'done' ? '重玩教程' : '新手教程') + '</button>' : '') + '<button class="btn ghost" data-open-saves type="button">存档</button><button class="btn ghost" data-open-sound type="button">声音</button><button class="btn ghost" data-home-help type="button">玩法帮助</button></div></header>' +
       '<section class="home-hero"><div class="home-welcome"><span class="eyebrow">从一座小镇开始</span><h2>规划你的下一座城市</h2><p>30 回合，让城市达成建设目标。</p><div class="home-counts"><span><b>' + clearedCount + '</b> / ' + G.SCENARIOS.length + ' 关已通关</span><span><b>' + fmt(loadBest()) + '</b> 最高声望</span></div></div>' +
       '<div class="home-progress"><span class="eyebrow">累计声望</span><strong>' + fmt(g.totalRep) + '</strong>' +
       '<div class="progress-track" role="progressbar" aria-label="下一成长目标" aria-valuemin="0" aria-valuemax="' + (next ? next.rep : Math.max(1,g.totalRep)) + '" aria-valuenow="' + g.totalRep + '"><i style="width:' + (next ? Math.min(100,g.totalRep / next.rep * 100) : 100) + '%"></i></div>' +
@@ -403,6 +478,19 @@
       if (d.querySelector('summary') && openSections.indexOf(d.querySelector('summary').textContent.split('·')[0].trim()) >= 0) d.open = true;
     });
     var isOpen = !$('modal').classList.contains('hidden');
+    $('modalCard').classList.toggle('story-card', storyIndex !== null);
+    if (storyIndex !== null) $('modalCard').setAttribute('aria-labelledby', 'storyTitle');
+    else $('modalCard').removeAttribute('aria-labelledby');
+    if (isOpen) {
+      var soundButton = document.createElement('button');
+      soundButton.type = 'button'; soundButton.className = 'text-btn modal-sound';
+      soundButton.setAttribute('data-open-sound', '');
+      var toolsRow = document.createElement('div'); toolsRow.className = 'modal-tools';
+      var saveButton = document.createElement('button'); saveButton.type = 'button'; saveButton.className = 'text-btn';
+      saveButton.setAttribute('data-open-saves', ''); saveButton.textContent = '存档';
+      toolsRow.appendChild(saveButton); toolsRow.appendChild(soundButton); $('modalCard').appendChild(toolsRow);
+    }
+    syncSound();
     $('homeScreen').inert = isOpen;
     $('gameScreen').inert = isOpen;
     if (isOpen && !wasOpen) focusReturn = focused;
@@ -423,6 +511,12 @@
     document.body.classList.toggle('is-tutorial', !!tutorial);
     if (!tutorial) delete document.body.dataset.tutorialStep;
     if (homeVisible) renderHome();
+    if (storyIndex !== null) {
+      $('modalCard').innerHTML = storyHtml();
+      $('modal').classList.remove('hidden');
+      $('btnShowModal').classList.add('hidden');
+      return;
+    }
     if (growthOpen || configuringScenario) {
       var detailsOpen = !!$('modalCard').querySelector('.setup-details[open]');
       var presetsOpen = !!$('modalCard').querySelector('.loadout-presets[open]');
@@ -871,7 +965,7 @@
 
   function renderLog(S) {
     $('logList').innerHTML = S.log.slice(0, 40).map(function (l) {
-      return '<div class="log-line ' + l.kind + '"><span class="log-turn">T' + l.turn + '</span><span>' + esc(l.text) + '</span></div>';
+      return '<div class="log-line ' + esc(l.kind) + '"><span class="log-turn">T' + esc(l.turn) + '</span><span>' + esc(l.text) + '</span></div>';
     }).join('');
   }
 
@@ -911,6 +1005,7 @@
     ];
     return '<div class="modal-head"><h2>市长手册</h2><p>先做一轮，再按需要查阅。</p></div><div class="help-quick"><div><b>01 建造</b><span>补供给，看余量</span></div><div><b>02 做任务</b><span>看预测，选奖励</span></div><div><b>03 达成目标</b><span>保持到第 30 回合</span></div></div>' +
       '<button class="btn primary" data-start-tutorial type="button">' + (mainGame.getState() ? '进入独立练习（保留当前城市）' : '开始新手教程') + '</button>' +
+      '<button class="text-btn help-story" data-open-story type="button">重看开场剧情</button>' +
       '<div class="help-sections">' + sections.map(function (r) { return '<details class="plain-details"><summary>' + r[0] + '</summary><p>' + resDescription(r[1]) + '</p></details>'; }).join('') + '</div>' +
       '<div class="modal-actions"><button class="btn ghost" data-close-help type="button">返回</button></div>';
   }
@@ -951,7 +1046,7 @@
     }).join('、') || '资源';
     var more = S.rewardQueue.length > 1
       ? '<p class="reward-more">还有 ' + (S.rewardQueue.length - 1) + ' 个完成任务的奖励待选择。</p>' : '';
-    return '<div class="modal-head"><h2>任务完成 · ' + offer.icon + ' ' + esc(offer.name) + '</h2>' +
+    return '<div class="modal-head"><h2>任务完成 · ' + esc(offer.icon) + ' ' + esc(offer.name) + '</h2>' +
       '<p>奖励二选一：人口或永久资源供给。两者都包含金钱与声望，选择后立即生效。</p></div>' +
       '<div class="reward-grid">' +
       '<button class="reward-card" data-reward-choice="pop" type="button">' +
@@ -1134,13 +1229,15 @@
   function nextTurn() {
     if (!tutorialAllows('next')) return;
     var r = G.endTurn();
-    if (!r.ok) toast(r.error);
+    if (!r.ok) { audio.play('error'); toast(r.error); }
+    else audio.play(G.getState().over ? 'settle' : G.getState().rewardQueue.length ? 'reward' : 'turn');
     render();
   }
 
   function build(id) {
     var r = G.build(id);
-    if (!r.ok) toast(r.error);
+    if (!r.ok) { audio.play('error'); toast(r.error); }
+    else audio.play('build');
     render();
   }
 
@@ -1172,29 +1269,31 @@
     var list = S.buildings.filter(function (b) { return b.defId === defId; });
     var active = list.filter(function (b) { return b.active; }).length;
     var r = G.setBuildingCount(defId, active + delta);
-    if (!r.ok) toast(r.error);
+    if (!r.ok) { audio.play('error'); toast(r.error); }
     render();
   }
 
   function accept(uid) {
     if (!tutorialAllows('accept', uid)) return;
     var r = G.acceptTask(uid);
-    if (!r.ok) toast(r.error);
+    if (!r.ok) { audio.play('error'); toast(r.error); }
+    else audio.play('task');
     render();
   }
 
   function abandon(uid) {
     if (tutorial) return;
     var r = G.abandonTask(uid);
-    if (!r.ok) toast(r.error);
+    if (!r.ok) { audio.play('error'); toast(r.error); }
     render();
   }
 
   function chooseTaskReward(choice) {
     if (!tutorialAllows('reward', choice)) return;
     var r = G.chooseReward(choice);
-    if (!r.ok) toast(r.error);
+    if (!r.ok) { audio.play('error'); toast(r.error); }
     else {
+      audio.play('reward');
       modalHidden = false;
       var o = r.offer;
       var supTxt = Object.keys(o.sup || {}).map(function (k) { return resName(k) + ' +' + o.sup[k]; }).join('、');
@@ -1212,7 +1311,8 @@
     modalHidden = false;
     if ((S.pendingDraw.count || 1) === 1) {
       var r = G.chooseBlueprint(id);
-      if (!r.ok) toast(r.error);
+      if (!r.ok) { audio.play('error'); toast(r.error); }
+      else audio.play('blueprint');
       drawPick = [];
       drawKey = null;
       render();
@@ -1234,18 +1334,21 @@
     modalHidden = false;
     var r = G.chooseBlueprints(drawPick);
     if (!r.ok) {
+      audio.play('error');
       toast(r.error);
       return;
     }
     drawPick = [];
     drawKey = null;
+    audio.play('blueprint');
     render();
   }
 
   function upgradeTown() {
     if (!tutorialAllows('upgrade')) return;
     var r = G.upgradeTown();
-    if (!r.ok) toast(r.error);
+    if (!r.ok) { audio.play('error'); toast(r.error); }
+    else audio.play('upgrade');
     drawPick = [];
     drawKey = null;
     render();
@@ -1275,6 +1378,7 @@
       }
     } catch (e) {}
     G.newGame(seed, scenarioId, config, growth.totalRep, growth.legacyUnlockRep);
+    audio.play('confirm');
     render();
     $('modalCard').scrollTop = 0;
   }
@@ -1310,12 +1414,15 @@
   }
 
   function init() {
+    try { saves.recover(localStorage); }
+    catch (e) { toast('本机恢复日志未能完成，请保留当前设备数据并检查存储空间'); return; }
     // Migrate historical clears before rendering can record this run's first victory.
     loadGrowth();
     loadSavedLoadouts();
     try {
       var prefs = JSON.parse(localStorage.getItem(UI_KEY) || '{}');
       if (prefs && (prefs.tutorial === 'done' || prefs.tutorial === 'skipped')) uiPrefs.tutorial = prefs.tutorial;
+      if (prefs && prefs.intro === 'seen') uiPrefs.intro = 'seen';
     } catch (e) {}
     setCityTab('resources');
     $('btnResourceDetail').addEventListener('click', function () { resourceDetails = !resourceDetails; render(); });
@@ -1325,6 +1432,13 @@
     });
     document.addEventListener('click', function (e) {
       var target = e.target;
+      if (target.closest('[data-open-sound]')) { openSound(); return; }
+      if (target.closest('[data-open-saves]')) { saveUI.open(); return; }
+      if (target.closest('[data-open-story]')) { openStory(); return; }
+      if (target.closest('[data-story-skip]')) { finishStory(false); return; }
+      if (target.closest('[data-story-next]')) { changeStory(1); return; }
+      if (target.closest('[data-story-back]')) { changeStory(-1); return; }
+      if (target.closest('[data-story-tutorial]')) { finishStory(true); return; }
       if (target.closest('[data-guide-next]')) { tutorial.acknowledge(); render(); return; }
       if (target.closest('[data-guide-exit]')) { endTutorial(false); return; }
       if (target.closest('[data-guide-finish]')) { endTutorial(true); return; }
@@ -1343,9 +1457,11 @@
       if (scenario) { openRunSetup(scenario.dataset.scenario); return; }
     });
     document.addEventListener('keydown', function (e) {
+      if ($('soundSettings').open || $('saveManager').open) return;
       if ($('modal').classList.contains('hidden')) return;
       if (e.key === 'Escape' && !tutorial) {
-        if (buildPreviewId) closeBuildPreview();
+        if (storyIndex !== null) finishStory(false);
+        else if (buildPreviewId) closeBuildPreview();
         else if (showHelp) { showHelp = false; render(); }
         else if (growthOpen) { growthOpen = false; render(); }
         else if (configuringScenario) { if (replacingCity) { replacingCity = false; render(); } else openScenarioSelection(pendingSeed); }
@@ -1415,7 +1531,7 @@
       if (e.target.closest('[data-reroll-blueprints]')) {
         var refresh = G.rerollBlueprints();
         if (!refresh.ok) toast(refresh.error);
-        else { drawKey = null; drawPick = []; }
+        else { drawKey = null; drawPick = []; audio.play('blueprint'); }
         render(); return;
       }
       var scenario = e.target.closest('[data-scenario]');
@@ -1497,13 +1613,18 @@
       requestedConfig = G.normalizeRunConfig({ difficultyId: params.get('difficulty') || 'normal', buffIds: requestedBuffs === 'none' ? [] : requestedBuffs.split(','), affixIds: params.get('affixes') ? params.get('affixes').split(',') : [] });
     } catch (e) {}
 
+    initSound();
+    saveUI = window.DSHSaveUI.create(window, { toast: toast, isTutorial: function () { return !!tutorial; }, reload: function () { window.location.reload(); } });
     var saved = loadSave();
     if (saved) {
       var imported = mainGame.importState(saved);
-      if (!imported.ok) { clearSave(); toast('上次城市存档无法读取，成长与成绩已保留'); }
+      if (!imported.ok) { toast('上次城市存档无法读取，可在「存档」中导出原始数据或恢复备份'); }
+      else { try { saves.write(localStorage, SAVE_KEY, JSON.stringify(mainGame.exportState())); } catch (e) { toast('城市已读取，但本机存储不可写；可导出文件留存'); } }
     }
     if (scenarioId) { pendingSeed = seed; openRunSetup(scenarioId, requestedConfig); }
     else openScenarioSelection(seed);
+    var hasProgress = !!saved || !!mainGame.getState() || loadBest() > 0 || P.totalRep(loadGrowth()) > 0 || Object.keys(loadCampaign()).length > 0;
+    if (!scenarioId && O.shouldShowStory(uiPrefs, hasProgress)) openStory();
   }
 
   if (document.readyState === 'loading') {

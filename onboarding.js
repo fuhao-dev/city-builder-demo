@@ -4,6 +4,18 @@
   else root.DSHOnboarding = factory();
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
+  var STORY = [
+    { id: 'arrival', chapter: '抵达 · 周目小镇', title: '小镇，等你开工',
+      text: '新任镇长，欢迎！大家攒下了一块空地和一份建设计划，等你把这里变成能安稳生活的小镇。' },
+    { id: 'commission', chapter: '委托 · 建设计划', title: '交出你的建设答卷',
+      text: '每个关卡都有自己的建设目标。用 {turns} 回合安排建设、补足供给；终局验收时全部达标，才算通关。' },
+    { id: 'practice', chapter: '启程 · 上岗练习', title: '这次，我们一起开工',
+      text: '先跟我练一遍：选蓝图、建农场、做任务，再为小镇迎来新居民。练习独立进行，放心试试吧！' }
+  ];
+  function shouldShowStory(prefs, hasProgress) {
+    prefs = prefs || {};
+    return prefs.intro !== 'seen' && prefs.tutorial !== 'done' && prefs.tutorial !== 'skipped' && !hasProgress;
+  }
   var STEPS = [
     { id: 'welcome', title: '先看建设目标', text: '安居小镇需要人口 9、满意度 20。正式对局在第 30 回合验收；这次只练习基本操作。', target: 'goal' },
     { id: 'blueprint', title: '选择一张蓝图', text: '选你喜欢的一张。蓝图解锁建筑类型，之后仍需花钱建造。', target: 'modal' },
@@ -45,5 +57,5 @@
       }
     };
   }
-  return { create: create };
+  return { create: create, story: function () { return STORY.map(function (s) { return Object.assign({}, s); }); }, shouldShowStory: shouldShowStory };
 });
