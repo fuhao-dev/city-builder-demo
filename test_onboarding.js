@@ -38,4 +38,16 @@ for (const mode of ['empty','normal','hard','over']) {
   // A city saved after a tutorial must still round-trip without changed RNG, config or receipts.
   if (before) { const restored=Main.createInstance(); ok(restored.importState(main.exportState()).ok); eq(restored.exportState(),before); }
 }
-console.log('PASS '+passed+' onboarding assertions: full practice, replay and main-city isolation');
+// First-visit gating must respect older tutorial preferences and existing progress.
+eq(O.shouldShowStory(null, false), true);
+eq(O.shouldShowStory({}, false), true);
+eq(O.shouldShowStory({intro:'seen'}, false), false);
+eq(O.shouldShowStory({tutorial:'done'}, false), false);
+eq(O.shouldShowStory({tutorial:'skipped'}, false), false);
+eq(O.shouldShowStory({}, true), false);
+eq(O.shouldShowStory({intro:'seen',tutorial:'done'}, true), false);
+const scenes = O.story();
+eq(scenes.map(s=>s.id), ['arrival','commission','practice']);
+scenes[0].text='Changed by a caller';scenes.pop();
+eq(O.story().length,3);ok(O.story()[0].text !== 'Changed by a caller');
+console.log('PASS '+passed+' onboarding assertions: first-visit story, full practice, replay and main-city isolation');

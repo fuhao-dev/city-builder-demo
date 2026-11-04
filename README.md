@@ -1,4 +1,4 @@
-# 周目小镇 · 城市大厅 v3.16.2 Demo
+# 周目小镇 · 城市大厅 v3.19.0 Demo
 
 在线试玩：https://fuhao-dev.github.io/city-builder-demo/
 
@@ -8,9 +8,13 @@
 
 主要版本更新见 [CHANGELOG.md](CHANGELOG.md)。
 
+首次从主入口打开时，会播放三幕可手动翻页的开场剧情：镇务员「阿禾」迎接新任镇长、介绍 30 回合终局验收目标，再邀请参加新手教程。结尾可直接开始独立练习或先去大厅，全程可跳过；完成或跳过后不再自动弹出，使用 `dsh_city_ui_v1` 的 `intro: "seen"` 保存。已有城市、成绩、累计声望或教程完成/跳过记录的玩家直接进入大厅；带 `level` 的显式关卡链接保留直接配置流程。可从「玩法帮助 → 重看开场剧情」重看，返回保留原城市。剧情中的第一关目标读取实际关卡定义。
+
 游戏图标用于页头、浏览器标签和手机主屏幕。原图、512/192/180/32 像素 PNG、ICO 及生成说明见 [assets/icons/README.md](assets/icons/README.md)。
 
 游戏名称为「周目小镇」。城市大厅与局内页头使用同配色的像素名称 LOGO；透明 PNG 与生成提示词见 [assets/brand/README.md](assets/brand/README.md)。
+
+大厅右上角、局内底栏和游戏选择弹窗都可打开「声音」。背景音乐与操作音效分别调节 0–100%，默认 30% / 60%；可试听音效、单独关闭某一类或全部静音，调整立即生效并保存在独立键 `dsh_city_audio_v1`。首次点击或键盘操作后启用声音，切到后台暂停，返回继续播放。静音保留原来的音量，刷新不会自行解除。原创合成曲「晨光街角」循环约 42 秒，音乐与短音效由 Web Audio 本地生成，无外部音频下载。
 
 - **自动存档**：正式城市每次操作后写入 `localStorage`（键名 `dsh_city_save_v34`）；刷新先回到主界面，点击「继续城市」恢复上次进度，不需要手动保存。
 - URL 加 `?seed=123` 打开固定种子的选关；`?seed=123&level=agriculture&difficulty=hard&buff=preparation,water_saving` 可预填 BUFF 组合，增加 `&affixes=idle,rations` 可预填词缀；点击“开始本局”才替换当前存档，仍校验关卡解锁、BUFF 解锁与额度。十二个关卡 ID 见下表。
@@ -18,6 +22,22 @@
 - 本机通关记录和最佳通关声望按“关卡 × 难度规则版本 × 词缀组合 × BUFF 组合 × 有效成长功能”保存在 `dsh_city_campaign_v2`；组合按 ID 排序，同一组合不会因勾选顺序产生多份成绩。刷新能力和新增蓝图池分别区分成绩；旧困难成绩保留在原规则组，新专属规则使用独立分组；旧 `v1` 成绩只迁入普通＋无加成。
 - 局外累计声望账本仍存于 `dsh_city_growth_v1`，内容升级为 v2 奖励明细。旧累计不增加、不清零，已解锁的旧权益保留；旧在途城市保留人口、金钱、蓝图、RNG 和剩余刷新次数，旧困难局继续原八项 ×1.15（不改为本关新规则），完成后按新奖励结算。旧已结束城市不补通关/首通奖励，历史通关视为对应难度已领首通。没有关卡字段的旧存档仍按自由经营恢复。
 - BUFF 方案使用独立键 `dsh_city_loadouts_v1`，保存 3 个可命名槽位，只记录名称和 BUFF 组合，不修改城市、成绩或成长账本。单个损坏槽位恢复为空，其余方案保留；方案仅存于当前浏览器。
+
+## 存档管理与 TapTap 云存档（v3.19.0）
+
+大厅、局内底栏和游戏选择弹窗的「存档」可查看本机进度、手动备份、导出 / 导入 JSON 文件。在普通网页中也能使用这些功能；本机备份仍依赖当前浏览器存储，重要进度建议导出文件留存。
+
+完整存档一起保存城市、待选蓝图与任务奖励、随机数状态、累计声望账本、首通 / 通关记录、最佳成绩、BUFF 方案和剧情 / 教程偏好。练习中的操作不会写入正式存档。声音偏好和云端上传冷却保留在设备上。
+
+在支持该功能的 TapTap H5 客户端中，直接使用平台提供的全局 `tap`、`getCloudSaveManager()`、文件系统和 `USER_DATA_PATH`；不加载第三方 SDK，也不保存账号口令。基础库需满足官方接口要求（2.0.0 起）。普通浏览器没有平台能力时会显示提示。
+
+- 云端采用**手动上传 / 下载**，复用 `loop_town_main_v1` 一个存档位。打开管理界面或推进回合不会自动请求云端；上传前读取当前版本，再确认上传方向；下载先校验和预览，确认后才替换本机。
+- **创建和更新共享每分钟最多一次**的限制。上传尝试前持久记录 60 秒冷却，失败或结果不明也保留；刷新页面不重置，不做自动重试或后台轮询。所有云端及文件操作顺序执行；支持 Web Locks 的环境还会阻止本游戏不同窗口并发，平台并发错误提供手动重试提示。
+- 单份按 **10,000,000 字节**保守限制（官方上限 10 MB），不上传封面；平台的存档数量、总云空间上限以实际返回为准，错误 400003 / 400005 显示对应提示，不假定未公开的配额数值。
+- 恢复会**替换整份进度，不叠加声望或首通奖励**；恢复前保留一份原进度和写入事务日志，失败回滚，意外中断后先恢复原数据再启动游戏。本机数据损坏时仍可导出原始备份，并从完整文件 / 云端恢复。备份 / 日志写入失败时不开始替换。
+- 确认前检查本机内容和云端 `uuid / fileId`；发现另一窗口或设备更新时拒绝覆盖，重新读取后再由玩家选择。当前接口没有原子条件更新，因此仍应避免两台设备同时提交；平台是最终的并发 / 配额裁决方。
+
+官方文档：[接口](https://developer.taptap.cn/minigameapidoc/dev/api/open-api/cloudsave/tap.getCloudSaveManager/) · [支持 H5 的接入指南](https://developer.taptap.cn/minigameapidoc/dev/tutorial/open-capabilities/cloud-save-tutorial/)。本地测试使用模拟 SDK；**真实账号的云端往返仍需上传 H5 包后在 TapTap 客户端自测**，包括断网、换设备、额度错误和慢上传结果确认。
 
 ## 开局配置
 
@@ -188,6 +208,9 @@
 ## 文件
 
 - `index.html` / `style.css` / `ui.js`：界面。
+- `onboarding.js` / `test_onboarding.js`：三幕开场内容、首次展示判断及独立教程；226 条断言覆盖首次/老玩家判断、完整练习、重玩与正式城市隔离。`assets/intro/town-dawn.svg` 为原创像素小镇场景。
+- `audio.js` / `test_audio.js`：原创 BGM、10 种短音效、独立音量与持久化、后台暂停恢复；75 项检查覆盖真实波形、播放生命周期和失败降级。声音模块不使用游戏随机数。
+- `scripts/package-taptap-h5.ps1`：PowerShell 7 打包脚本，自动读取页面版本，生成单个 `loop-town/` 目录的 H5 ZIP、文件清单与 SHA-256；包含声音模块，默认输出到仓库同级 `outputs/taptap-h5-v版本/`，拒绝覆盖已有包体。运行 `pwsh -File scripts/package-taptap-h5.ps1`，上传时选择横屏。
 - `game.js`：纯逻辑，无 DOM，Node 可直接 `require`；`growthStatus(totalRep,legacyUnlockRep)` 派生权限，`newGame(seed,scenarioId,runConfig,growthRep,legacyUnlockRep)` 接收实际累计和旧权益快照。`runConfigStatus / blueprintRerollStatus / rerollBlueprints` 及其余供需、任务、预测和验收 API 保留。
 - `progress.js`：纯函数处理分组合/成长成绩、旧成绩迁移，以及 `loadGrowth / creditGrowth / totalRep` 声望账本；浏览器存储由 `ui.js` 负责。
 - `test_game.js`：505 条基础规则断言，覆盖人口、供需、净产出、任务、预测、城镇与建筑启停，新增蓝图也满足原净产出档位。
@@ -221,6 +244,9 @@ node test_loadouts.js
 node test_difficulties.js
 node test_affixes.js
 node test_onboarding.js
+node test_audio.js
+node test_saves.js
+node test_cloud_save.js
 node test_balance.js
 node simulate_progression.js --accounts=3 --games=12 --output=progression.json
 node simulate_progression.js --accounts=2 --games=12 --start=81001 --policies=tour,challenge,town --output=progression-heldout.json
@@ -236,7 +262,7 @@ node simulate_scenarios.js --seeds=10 --start=76001 --growth=7500 --buffs=civic_
 
 `--mode=all` 只跑可使用已解锁建筑的常规路线，`--mode=basic` 只跑基础建筑；不传 `--mode` 时两条路线都跑。`--matrix=1` 遍历指定成长阶段全部合法组合，`--growth` 设置测试用累计声望，`--buffs` 指定组合。不指定关卡时仅模拟该成长阶段已解锁的关卡；显式指定未解锁关卡会拒绝。
 
-规则全文见 [DESIGN.md](DESIGN.md)（v3.16.2，§2.4–2.7 为当前成长、配装和困难规则，文末为界面与引导约定）。
+规则全文见 [DESIGN.md](DESIGN.md)（v3.19.0，§2.4–2.7 为当前成长、配装和困难规则，文末为界面与引导约定）。
 
 ## 还没做
 
