@@ -1,4 +1,4 @@
-# 城镇建设局 · 城市大厅 v3.16.1 Demo
+# 周目小镇 · 城市大厅 v3.16.2 Demo
 
 在线试玩：https://fuhao-dev.github.io/city-builder-demo/
 
@@ -10,7 +10,7 @@
 
 游戏图标用于页头、浏览器标签和手机主屏幕。原图、512/192/180/32 像素 PNG、ICO 及生成说明见 [assets/icons/README.md](assets/icons/README.md)。
 
-游戏名称为「城镇建设局」。城市大厅与局内页头使用同配色的像素名称 LOGO；透明 PNG 与生成提示词见 [assets/brand/README.md](assets/brand/README.md)。
+游戏名称为「周目小镇」。城市大厅与局内页头使用同配色的像素名称 LOGO；透明 PNG 与生成提示词见 [assets/brand/README.md](assets/brand/README.md)。
 
 - **自动存档**：正式城市每次操作后写入 `localStorage`（键名 `dsh_city_save_v34`）；刷新先回到主界面，点击「继续城市」恢复上次进度，不需要手动保存。
 - URL 加 `?seed=123` 打开固定种子的选关；`?seed=123&level=agriculture&difficulty=hard&buff=preparation,water_saving` 可预填 BUFF 组合，增加 `&affixes=idle,rations` 可预填词缀；点击“开始本局”才替换当前存档，仍校验关卡解锁、BUFF 解锁与额度。十二个关卡 ID 见下表。
@@ -236,9 +236,10 @@ node simulate_scenarios.js --seeds=10 --start=76001 --growth=7500 --buffs=civic_
 
 `--mode=all` 只跑可使用已解锁建筑的常规路线，`--mode=basic` 只跑基础建筑；不传 `--mode` 时两条路线都跑。`--matrix=1` 遍历指定成长阶段全部合法组合，`--growth` 设置测试用累计声望，`--buffs` 指定组合。不指定关卡时仅模拟该成长阶段已解锁的关卡；显式指定未解锁关卡会拒绝。
 
-规则全文见 [DESIGN.md](DESIGN.md)（v3.16.1，§2.4–2.7 为当前成长、配装和困难规则，文末为界面与引导约定）。
+规则全文见 [DESIGN.md](DESIGN.md)（v3.16.2，§2.4–2.7 为当前成长、配装和困难规则，文末为界面与引导约定）。
 
 ## 还没做
 
+- 激励视频广告方案已暂定，等待平台接入文档后实现：结算界面每次观看额外获得本局最终声望的 100%，蓝图选择界面每次观看刷新当前整组；两处均不设每局或每日次数上限。完整口径见 [DESIGN.md](DESIGN.md) 文末「激励视频广告方案」，当前版本尚未接入。
 - 更多成长分支、BUFF 强度和基础困难的试玩调优；高词缀不设通关率要求；当前采用累计自动解锁，不扣除声望。
 - 等待期的政策 / 短期委托（试玩反馈第 6 条）是新系统，下一轮设计。

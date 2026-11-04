@@ -1,4 +1,4 @@
-/* 城镇建设局 · v3.16.1 城市大厅与新手引导 */
+/* 周目小镇 · v3.16.2 城市大厅与新手引导 */
 (function () {
   'use strict';
 
@@ -376,7 +376,7 @@
     }
     var rows = growthMilestones(), next = rows.filter(function (r) { return !milestoneUnlocked(r, g.totalRep, g.legacyUnlockRep); })[0];
     var clearedCount = G.SCENARIOS.filter(function (s) { return Object.keys(loadCampaign()).some(function (k) { return k.indexOf(s.id + '|') === 0; }); }).length;
-    $('homeScreen').innerHTML = '<header class="home-header"><a class="home-brand" href="#" aria-label="城镇建设局主界面"><img class="home-app-icon" src="assets/icons/icon-192.png?v=3" alt="" width="48" height="48"><div class="brand-lockup"><h1><img class="wordmark" src="assets/brand/town-construction-bureau-wordmark.png?v=3161a" width="252" height="84" alt="城镇建设局"></h1><span>城市大厅 · v3.16.1</span></div></a><div class="home-header-actions">' +
+    $('homeScreen').innerHTML = '<header class="home-header"><a class="home-brand" href="#" aria-label="周目小镇主界面"><img class="home-app-icon" src="assets/icons/icon-192.png?v=3" alt="" width="48" height="48"><div class="brand-lockup"><h1><img class="wordmark" src="assets/brand/loop-town-wordmark.png?v=3162a" width="252" height="84" alt="周目小镇"></h1><span>城市大厅 · v3.16.2</span></div></a><div class="home-header-actions">' +
       (uiPrefs.tutorial ? '<button class="text-btn" data-start-tutorial type="button">' + (uiPrefs.tutorial === 'done' ? '重玩教程' : '新手教程') + '</button>' : '') + '<button class="btn ghost" data-home-help type="button">玩法帮助</button></div></header>' +
       '<section class="home-hero"><div class="home-welcome"><span class="eyebrow">从一座小镇开始</span><h2>规划你的下一座城市</h2><p>30 回合，让城市达成建设目标。</p><div class="home-counts"><span><b>' + clearedCount + '</b> / ' + G.SCENARIOS.length + ' 关已通关</span><span><b>' + fmt(loadBest()) + '</b> 最高声望</span></div></div>' +
       '<div class="home-progress"><span class="eyebrow">累计声望</span><strong>' + fmt(g.totalRep) + '</strong>' +
